@@ -5,7 +5,6 @@ import {
   Color,
   CylinderGeometry,
   DirectionalLight,
-  DoubleSide,
   Group,
   type Light,
   Mesh,
@@ -16,8 +15,8 @@ import {
   type Texture,
 } from "three";
 
-/** Coin thickness as a fraction of its radius (unit-radius geometry). */
-const THICKNESS = 0.17;
+/** Thin chip, not a chunky coin (Marek: "chips are really chunky"). */
+const THICKNESS = 0.06;
 
 export type CoinGeometry = {
   blank: CylinderGeometry;
@@ -26,64 +25,52 @@ export type CoinGeometry = {
 };
 
 export function createCoinGeometry(): CoinGeometry {
-  // Unit-radius coin. Rotate so the circular caps face the camera (+Z).
-  // Low segment counts — the coins are small on screen, so 20 reads round.
-  const blank = new CylinderGeometry(1, 1, THICKNESS, 20, 1, false);
+  // Unit-radius chip. Rotate so the circular faces point at the camera (+Z).
+  // Low segment counts — the chips are small on screen, so 18 reads round.
+  const blank = new CylinderGeometry(1, 1, THICKNESS, 18, 1, false);
   blank.rotateX(Math.PI / 2);
-  const decal = new CircleGeometry(0.9, 22);
+  const decal = new CircleGeometry(0.9, 20);
   const shadow = new PlaneGeometry(1, 1);
   return { blank, decal, shadow };
 }
 
 /**
- * Rim + cap materials are identical for every coin, so build them ONCE and
- * share across all coins (only the logo decal is per-coin). Cheap lit
- * `MeshStandardMaterial` — no `MeshPhysicalMaterial`/clearcoat.
+ * A small palette of rim + one cap material, shared across all chips (only the
+ * logo decal is per-chip). Three rim tints break the "identical white rim on
+ * every disc" read cheaply — no per-coin materials, no `MeshPhysicalMaterial`.
  */
 export type CoinMaterials = {
-  rimMat: MeshStandardMaterial;
+  rimMats: MeshStandardMaterial[];
   capMat: MeshStandardMaterial;
 };
 
 export function createCoinMaterials(): CoinMaterials {
-  // Bright coin edge — low metalness so it reads without an env map; the key
-  // light gives it a moving specular sheen on tilt, selling the thickness.
-  const rimMat = new MeshStandardMaterial({
-    color: new Color(0.86, 0.88, 0.92),
-    metalness: 0.25,
-    roughness: 0.34,
-  });
-  // Pearl coin body under the logo (Standard, not Physical).
+  const rimMats = [
+    // cool steel
+    new MeshStandardMaterial({
+      color: new Color(0.78, 0.82, 0.9),
+      metalness: 0.3,
+      roughness: 0.3,
+    }),
+    // neutral silver
+    new MeshStandardMaterial({
+      color: new Color(0.88, 0.89, 0.9),
+      metalness: 0.22,
+      roughness: 0.4,
+    }),
+    // warm brass-ish
+    new MeshStandardMaterial({
+      color: new Color(0.9, 0.85, 0.74),
+      metalness: 0.28,
+      roughness: 0.34,
+    }),
+  ];
   const capMat = new MeshStandardMaterial({
-    color: new Color(0.96, 0.96, 0.98),
+    color: new Color(0.95, 0.95, 0.97),
     metalness: 0.0,
-    roughness: 0.4,
+    roughness: 0.45,
   });
-  return { rimMat, capMat };
-}
-
-/** Soft radial falloff used for the grounded contact shadow. */
-export function createShadowTexture(): CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
-  const g = ctx.createRadialGradient(
-    size / 2,
-    size / 2,
-    0,
-    size / 2,
-    size / 2,
-    size / 2,
-  );
-  g.addColorStop(0, "rgba(0,0,0,0.55)");
-  g.addColorStop(0.55, "rgba(0,0,0,0.28)");
-  g.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const tex = new CanvasTexture(canvas);
-  tex.colorSpace = SRGBColorSpace;
-  return tex;
+  return { rimMats, capMat };
 }
 
 export type Coin = {
@@ -97,9 +84,11 @@ export function createCoin(
   geo: CoinGeometry,
   mats: CoinMaterials,
   logoTexture: Texture,
+  rimIndex: number,
 ): Coin {
+  const rim = mats.rimMats[rimIndex % mats.rimMats.length];
   // Cylinder groups after rotateX: [side, +Z cap, -Z cap] — shared materials.
-  const blank = new Mesh(geo.blank, [mats.rimMat, mats.capMat, mats.capMat]);
+  const blank = new Mesh(geo.blank, [rim, mats.capMat, mats.capMat]);
 
   const logoMat = new MeshBasicMaterial({
     map: logoTexture,
@@ -108,7 +97,7 @@ export function createCoin(
     toneMapped: false,
   });
   const logo = new Mesh(geo.decal, logoMat);
-  logo.position.z = THICKNESS / 2 + 0.014;
+  logo.position.z = THICKNESS / 2 + 0.01;
   logo.renderOrder = 2;
 
   const group = new Group();
@@ -132,71 +121,40 @@ export function createShadow(geo: CoinGeometry, texture: Texture): Mesh {
   return mesh;
 }
 
-/**
- * Opaque box-colored bar at the services box top edge. Coins that dip behind it
- * (negative z during the dock) are occluded → the logos tuck under the "mouth"
- * rim instead of sliding over a color seam.
- */
-export function createMouthOccluder(): Mesh {
-  const mat = new MeshBasicMaterial({ color: 0x000000, toneMapped: false });
-  const mesh = new Mesh(new PlaneGeometry(1, 1), mat);
-  mesh.renderOrder = 1;
-  return mesh;
-}
-
-/**
- * Soft "lip" drawn IN FRONT of the coins at the box top: a faint highlight at
- * the very edge fading into an inner shadow. Reads as a rounded rim overhang and
- * dissolves the hard horizontal seam as coins cross, while also adding top-lit
- * depth to the coins settled in the box's upper band.
- */
-export function createLip(): Mesh {
-  const w = 8;
-  const h = 160;
+/** Soft radial falloff used for the grounded contact shadow. */
+export function createShadowTexture(): CanvasTexture {
+  const size = 128;
   const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  const g = ctx.createLinearGradient(0, 0, 0, h);
-  // A lit glass rim: bright specular edge, then a blue interior sheen that stays
-  // visible against the near-black box, dissolving the hard color seam and
-  // reading as a rounded lip the coins tuck under.
-  g.addColorStop(0.0, "rgba(206,226,255,0.0)");
-  g.addColorStop(0.03, "rgba(224,238,255,0.85)"); // specular rim line
-  g.addColorStop(0.07, "rgba(150,182,240,0.4)");
-  g.addColorStop(0.2, "rgba(96,132,200,0.16)"); // interior sheen (reads on black)
-  g.addColorStop(0.5, "rgba(60,86,150,0.05)");
+  const g = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
+  g.addColorStop(0, "rgba(0,0,0,0.5)");
+  g.addColorStop(0.55, "rgba(0,0,0,0.24)");
   g.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(0, 0, size, size);
   const tex = new CanvasTexture(canvas);
   tex.colorSpace = SRGBColorSpace;
-
-  const mat = new MeshBasicMaterial({
-    map: tex,
-    transparent: true,
-    depthWrite: false,
-    depthTest: false,
-    toneMapped: false,
-  });
-  const mesh = new Mesh(new PlaneGeometry(1, 1), mat);
-  mesh.renderOrder = 4; // in front of the logo decals (renderOrder 2)
-  return mesh;
+  return tex;
 }
 
 export function createLights(): Light[] {
-  const ambient = new AmbientLight(0xffffff, 0.72);
+  const ambient = new AmbientLight(0xffffff, 0.82);
 
-  const key = new DirectionalLight(0xffffff, 1.55);
+  const key = new DirectionalLight(0xffffff, 1.45);
   key.position.set(-0.5, 0.9, 1.4);
 
-  const rim = new DirectionalLight(0x9fc6ff, 0.9);
-  rim.position.set(0.8, 0.5, -0.6);
+  const rim = new DirectionalLight(0x9fc6ff, 0.85);
+  rim.position.set(0.8, 0.5, -0.4);
 
-  const fill = new DirectionalLight(0xffe9d2, 0.4);
-  fill.position.set(0.3, -0.7, 0.9);
-
-  return [ambient, key, rim, fill];
+  return [ambient, key, rim];
 }
 
-export { THICKNESS, DoubleSide };
+export { THICKNESS };

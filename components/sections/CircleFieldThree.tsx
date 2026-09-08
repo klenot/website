@@ -29,7 +29,6 @@ import {
   spreadMarginPx,
 } from "./serviceReveal";
 import { PATH_HORIZONTAL, PATH_VERTICAL } from "./pathConfig";
-import { boxBandFromMargin } from "./circleLayoutCache";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   EMPTY_LAYOUT_CACHE,
@@ -49,8 +48,6 @@ import {
   createCoinGeometry,
   createCoinMaterials,
   createLights,
-  createLip,
-  createMouthOccluder,
   createShadow,
   createShadowTexture,
   type Coin,
@@ -59,11 +56,10 @@ import {
 } from "./coinFactory";
 
 const FOV = 30;
-// z-depth tiers (world units on the pixel-mapped z=0 plane).
-const Z_NEAR = 120;
-const Z_FAR = -55;
-const HERO_LIFT = 90; // how far in front coins float while in the hero
-const MOUTH_DIP = -185; // extra z during the crossing → slip behind the lip
+// Small per-tier z only for correct-sorted overlaps; visible near/far comes from
+// a baked SIZE multiplier (below), so landing stays pixel-exact.
+const Z_SORT = 60;
+const HERO_LIFT = 80; // chips float a little in front while up in the hero
 
 // Idle stop: after this long with no scroll/resize/IO wake, drift eases to 0
 // over the decay window and the rAF loop halts until the next wake.
@@ -111,8 +107,6 @@ export default function CircleFieldThree({
   const coinsRef = useRef<Coin[]>([]);
   const shadowsRef = useRef<Mesh[]>([]);
   const appearRef = useRef<number[]>([]);
-  const occluderRef = useRef<Mesh | null>(null);
-  const lipRef = useRef<Mesh | null>(null);
   const geoRef = useRef<CoinGeometry | null>(null);
   const matsRef = useRef<CoinMaterials | null>(null);
   const lightsRef = useRef<Light[]>([]);
@@ -288,82 +282,64 @@ export default function CircleFieldThree({
         appear[i] = ap;
         const apEase = ap * ap * (3 - 2 * ap);
 
-        // --- depth (z) with the mouth dip during the dock (staggered per coin
-        //     so they don't all cross the lip on one synchronized line) ---
-        const dipMu = 0.5 + (tier - 0.5) * 0.14;
-        const dip = gauss(tv, dipMu, 0.16);
-        const zBox = Z_NEAR + (Z_FAR - Z_NEAR) * tier;
-        let zc: number;
-        if (c.origin === "box") {
-          zc = zBox;
-        } else {
-          const zHero = HERO_LIFT + nearF * 55;
-          zc = zHero + (zBox - zHero) * dockEase + MOUTH_DIP * dip;
-        }
-        zc += Math.sin(frameTime * 0.0004 + c.phase) * 7 * nearF * idle; // z bob
+        // Depth is a small sort offset only (near in front for correct overlap);
+        // no occluder, so chips always render cleanly over the box — never stuck
+        // behind a fake line.
+        const zSort = (nearF - 0.5) * Z_SORT;
+        const zHero = HERO_LIFT + nearF * 30;
+        let zc = c.origin === "box" ? zSort : zHero + (zSort - zHero) * dockEase;
+        zc += Math.sin(frameTime * 0.0004 * (0.55 + nearF) + c.phase) * 6 * nearF * idle;
 
-        // --- screen anchor (overlay-local px -> world, y-up) + depth parallax ---
-        const parAmp = (0.4 + nearF) * 4.5 * idle;
-        const sx =
-          pose.x + Math.sin(frameTime * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
-        const syTop =
-          pose.y +
-          offY +
-          Math.cos(frameTime * (c.fy ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp * 0.7;
-        const worldScreenX = sx;
-        const worldScreenY = canvasH - syTop;
+        // --- depth-scaled scroll differential (near leads the dock, far lags) ---
+        const lead = c.origin === "box" ? 0 : (nearF - 0.5) * 26 * gauss(tv, 0.5, 0.2);
 
-        // Keep the projected center + size locked to the target px at any depth.
+        // --- screen anchor (overlay-local px -> world, y-up) + idle parallax ---
+        const idleT = frameTime * (0.55 + nearF * 0.9); // far drifts slower
+        const parAmp = (0.4 + nearF) * 4 * idle;
+        const worldScreenX =
+          pose.x + Math.sin(idleT * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
+        const worldScreenY =
+          canvasH -
+          (pose.y +
+            offY +
+            lead +
+            Math.cos(idleT * (c.fy ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp * 0.7);
+
+        // Keep the projected center locked to the target px; visible near/far
+        // scale is a baked multiplier so landing never drifts with depth.
         const f = (camDist - zc) / camDist;
         const worldX = canvasW / 2 + (worldScreenX - canvasW / 2) * f;
         const worldY = canvasH / 2 + (worldScreenY - canvasH / 2) * f;
-        const screenR = (CIRCLE_LOGOS[i].size * scale) / 2;
+        const sizeMul = 1 + (nearF - 0.5) * 0.34; // clearer near/far scale
+        const settle = c.origin === "box" ? 1 : 1 + (1 - dockEase) * 0.06;
+        const screenR = (CIRCLE_LOGOS[i].size * scale * sizeMul * settle) / 2;
         const worldR = screenR * f * apEase;
 
         coin.group.visible = apEase > 0.01;
         coin.group.position.set(worldX, worldY, zc);
         coin.group.scale.setScalar(Math.max(0.0001, worldR));
 
-        // --- tilt + idle micro-yaw (amplitude by depth) + tip through the lip ---
-        // Tip leads the dip slightly and is wider so the forward lean is visible
-        // before the coin tucks under the rim.
-        const tipIn = c.origin === "box" ? 0 : gauss(tv, dipMu - 0.06, 0.2) * 0.42;
+        // --- tilt + depth-scaled idle micro-yaw + a gentle lean while docking ---
+        const tipIn = c.origin === "box" ? 0 : gauss(tv, 0.5, 0.24) * 0.26;
         coin.group.rotation.x =
           (c.tiltX ?? 0) +
           tipIn +
-          Math.sin(frameTime * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * idle;
+          Math.sin(idleT * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * idle;
         coin.group.rotation.y =
           (c.tiltY ?? 0) +
-          Math.sin(frameTime * 0.00052 + (c.spinPhase ?? 0) * 1.3) *
-            0.09 *
-            (0.4 + nearF) *
-            idle;
+          Math.sin(idleT * 0.00052 + (c.spinPhase ?? 0) * 1.3) * 0.09 * (0.4 + nearF) * idle;
 
-        // --- grounded soft contact shadow (reads over the hero) ---
-        const shMat = shadow.material as { opacity: number };
-        shadow.visible = true;
-        const shScale = screenR * f * 2 * 1.55;
-        shadow.position.set(worldX, worldY - worldR * 0.5, zc - 6);
-        shadow.scale.set(shScale, shScale, 1);
-        shMat.opacity = 0.32 * apEase;
-      }
-
-      // --- mouth: thin occluder tucks coins under the rim; soft lip in front
-      //     dissolves the seam and top-lights the settled cloud ---
-      const band = boxBandFromMargin(cache, mgn);
-      const boxW = Math.max(1, canvasW - 2 * mgn);
-      const topWorldY = canvasH - (band.bandTop + offY);
-      const occ = occluderRef.current;
-      if (occ) {
-        const occH = Math.min(48, Math.max(22, band.bandH * 0.05));
-        occ.position.set(canvasW / 2, topWorldY - occH / 2, 0);
-        occ.scale.set(boxW, occH, 1);
-      }
-      const lip = lipRef.current;
-      if (lip) {
-        const lipH = Math.min(160, Math.max(70, band.bandH * 0.2));
-        lip.position.set(canvasW / 2, topWorldY - lipH / 2, 0);
-        lip.scale.set(boxW, lipH, 1);
+        // --- grounded soft contact shadow (desktop only; invisible on black) ---
+        if (mobile) {
+          shadow.visible = false;
+        } else {
+          const shMat = shadow.material as { opacity: number };
+          shadow.visible = true;
+          const shScale = screenR * f * 2 * 1.5;
+          shadow.position.set(worldX, worldY - worldR * 0.5, zc - 6);
+          shadow.scale.set(shScale, shScale, 1);
+          shMat.opacity = 0.3 * apEase;
+        }
       }
 
       renderer.render(scene, camera);
@@ -384,7 +360,8 @@ export default function CircleFieldThree({
     mobileRef.current = narrow;
     maxVisibleRef.current = narrow ? 6 : CIRCLE_LOGOS.length;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.25 : 2);
+    // Lower DPR caps to cut fill-rate (Marek: painfully slow scrolling).
+    const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.25 : 1.5);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
 
@@ -506,19 +483,11 @@ export default function CircleFieldThree({
     const loader = new TextureLoader();
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-    const occluder = createMouthOccluder();
-    scene.add(occluder);
-    occluderRef.current = occluder;
-
-    const lip = createLip();
-    scene.add(lip);
-    lipRef.current = lip;
-
     const coins: Coin[] = [];
     const shadows: Mesh[] = [];
     appearRef.current = CIRCLE_LOGOS.map(() => 0);
 
-    CIRCLE_LOGOS.forEach((logo) => {
+    CIRCLE_LOGOS.forEach((logo, i) => {
       const texture: Texture = loader.load(`/logos/${logo.file}`, () => {
         renderStatic(reducedRef.current);
       });
@@ -529,7 +498,9 @@ export default function CircleFieldThree({
       scene.add(shadow);
       shadows.push(shadow);
 
-      const coin = createCoin(geo, mats, texture);
+      // Vary the rim tint by depth tier so the chips aren't all identical.
+      const rimIndex = Math.round((circles[i]?.depthTier ?? 0.5) * 2);
+      const coin = createCoin(geo, mats, texture, rimIndex);
       scene.add(coin.group);
       coins.push(coin);
     });
@@ -558,17 +529,12 @@ export default function CircleFieldThree({
         light.dispose();
       }
       lightsRef.current = [];
-      mats.rimMat.dispose();
+      for (const rim of mats.rimMats) rim.dispose();
       mats.capMat.dispose();
       shadowTex.dispose();
       geo.blank.dispose();
       geo.decal.dispose();
       geo.shadow.dispose();
-      (occluder.material as { dispose: () => void }).dispose();
-      occluder.geometry.dispose();
-      (lip.material as { map?: Texture | null; dispose: () => void }).map?.dispose();
-      (lip.material as { dispose: () => void }).dispose();
-      lip.geometry.dispose();
       renderer.dispose();
       rendererRef.current = null;
       sceneRef.current = null;
