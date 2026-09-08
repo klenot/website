@@ -3,24 +3,18 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { motion } from "motion/react";
 import { trackEvent } from "@/lib/mixpanel";
 import HobbiesTicker from "./HobbiesTicker";
 
 const CONTACT_HREF = "mailto:klenoticmarek@mklenotic.com";
 const CV_PDF_HREF = "/about/cv-klenoticmarek/Marek-Klenotic-CV.pdf";
 
-// Tiled fractal-noise grain, layered under the content to give the near-black
-// canvas the same textured depth as the homepage hero (which uses image grain).
-const GRAIN_SVG =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
-
-type CtaVariant = "primary" | "outline";
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
 
 type Cta = {
   label: string;
   href: string;
-  variant: CtaVariant;
   download?: boolean;
   external?: boolean;
   icon?: "download" | "external";
@@ -28,24 +22,21 @@ type Cta = {
 
 const HERO_CTAS: Cta[] = [
   {
-    label: "Download cv",
+    label: "Download CV",
     href: CV_PDF_HREF,
-    variant: "primary",
     download: true,
     icon: "download",
   },
-  { label: "Contact me", href: CONTACT_HREF, variant: "outline" },
+  { label: "Contact me", href: CONTACT_HREF },
   {
     label: "LinkedIn",
     href: "https://linkedin.com/in/klenoticmarek",
-    variant: "outline",
     external: true,
     icon: "external",
   },
   {
     label: "Product Lasso",
     href: "https://productlasso.com",
-    variant: "outline",
     external: true,
     icon: "external",
   },
@@ -105,9 +96,6 @@ const SIDEQUESTS: { role: string; detail?: string; years: string }[] = [
   { role: "Student Union UTB", years: "2015 – 2019" },
 ];
 
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05030f]";
-
 function CompanyLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a
@@ -115,16 +103,16 @@ function CompanyLink({ href, children }: { href: string; children: ReactNode }) 
       target="_blank"
       rel="noopener noreferrer"
       onClick={() => trackEvent("cv_bio_company_clicked", { href })}
-      className={`rounded-sm font-medium text-white underline decoration-blue-400/50 underline-offset-4 transition-colors hover:text-white hover:decoration-blue-300 ${FOCUS_RING}`}
+      className={`rounded-sm font-medium text-black underline decoration-black/30 underline-offset-2 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
     >
       {children}
     </a>
   );
 }
 
-// Full "journey" bio shown in the hero. Company names link out to the
-// authoritative destinations for this site. Kept as an ordered list of
-// paragraphs so the Read more toggle can reveal them progressively.
+// Full "journey" bio. Company names link out to the authoritative destinations
+// for this site. Kept as an ordered list of paragraphs so the Read more toggle
+// can reveal them progressively.
 const BIO_PARAGRAPHS: { id: string; body: ReactNode }[] = [
   {
     id: "pria-system",
@@ -264,45 +252,36 @@ function ToggleChevron({ expanded }: { expanded: boolean }) {
   );
 }
 
-function CtaButton({ label, href, variant, download, external, icon }: Cta) {
+// Unified CTA group. Every action shares the same understated blog link
+// treatment (mono, underlined, blue on hover) so the buttons read as one set
+// instead of scattered, mismatched pills.
+function CtaLink({ label, href, download, external, icon }: Cta) {
   const onClick = () => trackEvent("cv_cta_clicked", { cta: label, href });
-  const anchorProps = {
-    href,
-    onClick,
-    ...(download ? { download: "" } : {}),
-    ...(external ? { target: "_blank", rel: "noopener noreferrer" } : {}),
-  };
-
-  // Primary — the site's signature black pill with an offset warm-gradient
-  // shadow that snaps in on hover (see the homepage footer CTA).
-  if (variant === "primary") {
-    return (
-      <a
-        {...anchorProps}
-        className={`group relative inline-flex rounded-full font-mono ${FOCUS_RING}`}
-      >
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 translate-x-[2px] translate-y-[5px] rounded-full"
-          style={{ background: "linear-gradient(to right, #FF8008, #FFC837)" }}
-        />
-        <span className="relative inline-flex items-center gap-2 rounded-full border border-white/10 bg-black px-6 py-3 text-sm text-white transition-transform duration-150 ease-out group-hover:translate-x-[2px] group-hover:translate-y-[5px]">
-          <span>{label}</span>
-          {icon === "download" ? <DownloadIcon /> : null}
-          {icon === "external" ? <ExternalIcon /> : null}
-        </span>
-      </a>
-    );
-  }
 
   return (
     <a
-      {...anchorProps}
-      className={`inline-flex items-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/[0.10] px-6 py-3 font-mono text-sm text-white/80 backdrop-blur-sm transition-colors duration-200 hover:border-blue-300/60 hover:bg-blue-500/[0.18] hover:text-white ${FOCUS_RING}`}
+      href={href}
+      onClick={onClick}
+      {...(download ? { download: "" } : {})}
+      {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+      className={`inline-flex items-center gap-1.5 rounded-sm font-mono text-sm font-medium text-black underline decoration-black/30 underline-offset-2 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
     >
       <span>{label}</span>
+      {icon === "download" ? <DownloadIcon /> : null}
       {icon === "external" ? <ExternalIcon /> : null}
     </a>
+  );
+}
+
+function CtaGroup() {
+  // One wrapping cluster with even gaps. The mobile max-width forces a balanced
+  // 2 + 2 wrap (no lone orphan on ~390) and lifts on sm+ to a single row.
+  return (
+    <div className="mx-auto flex max-w-[320px] flex-wrap items-center justify-center gap-x-5 gap-y-3 sm:max-w-none">
+      {HERO_CTAS.map((cta) => (
+        <CtaLink key={cta.label} {...cta} />
+      ))}
+    </div>
   );
 }
 
@@ -321,8 +300,8 @@ function HeroBio() {
   };
 
   return (
-    <div className="mt-8 max-w-2xl">
-      <div className="space-y-4 text-base leading-relaxed text-white/70 md:text-lg">
+    <div className="w-full text-left">
+      <div className="space-y-6 font-mono text-base font-light leading-relaxed text-black/70">
         {visibleParagraphs.map((paragraph) => (
           <p key={paragraph.id}>{paragraph.body}</p>
         ))}
@@ -332,7 +311,7 @@ function HeroBio() {
         type="button"
         onClick={toggle}
         aria-expanded={expanded}
-        className={`mt-5 inline-flex items-center gap-1.5 rounded-md font-mono text-sm font-medium text-white underline decoration-blue-400/60 underline-offset-4 transition-colors hover:text-blue-200 hover:decoration-blue-300 ${FOCUS_RING}`}
+        className={`mt-5 inline-flex items-center gap-1.5 rounded-sm font-mono text-sm font-medium text-black transition-colors hover:text-blue-600 ${FOCUS_RING}`}
       >
         <span>{expanded ? "Read less" : "Read more"}</span>
         <ToggleChevron expanded={expanded} />
@@ -341,33 +320,15 @@ function HeroBio() {
   );
 }
 
-const revealProps = {
-  initial: { opacity: 0, y: 24 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, margin: "-80px" },
-  transition: { duration: 0.5, ease: "easeOut" as const },
-};
-
-function GlassCard({
-  children,
-  className = "",
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+function SectionHeading({ kicker, title }: { kicker: string; title: string }) {
   return (
-    <div
-      className={`relative overflow-hidden rounded-4xl border border-blue-800/40 bg-black/20 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.55)] backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-[3px] hover:border-blue-500/50 hover:shadow-[0_44px_100px_-32px_rgba(0,110,255,0.28)] ${className}`}
-    >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-linear-to-b from-white/10 to-transparent"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-24 left-1/2 h-48 w-2/3 -translate-x-1/2 rounded-full bg-blue-500/10 blur-3xl"
-      />
-      <div className="relative">{children}</div>
+    <div className="mb-6">
+      <span className="mb-2 block font-mono text-[0.6875rem] tracking-wider text-black/50 uppercase">
+        {kicker}
+      </span>
+      <h2 className="font-mono text-[1.424rem] font-bold leading-[1.35] tracking-[-0.015em] text-black">
+        {title}
+      </h2>
     </div>
   );
 }
@@ -384,259 +345,182 @@ function Section({
   id?: string;
 }) {
   return (
-    <motion.section
-      id={id}
-      className="mx-4 md:mx-auto md:max-w-[1080px]"
-      {...revealProps}
-    >
-      <GlassCard>
-        <div className="grid gap-5 px-6 py-10 md:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)] md:gap-8 md:px-10 md:py-14">
-          <div>
-            <p className="font-mono text-xs tracking-[0.2em] text-blue-200/50 uppercase">
-              {kicker}
-            </p>
-            <h2 className="mt-2 font-mono text-lg text-white md:text-xl">
-              {title}
-            </h2>
-          </div>
-          <div>{children}</div>
-        </div>
-      </GlassCard>
-    </motion.section>
+    <section id={id} className="w-full border-t border-black/10 pt-16">
+      <SectionHeading kicker={kicker} title={title} />
+      {children}
+    </section>
   );
 }
 
 export default function CvContent() {
   return (
-    <main className="relative min-h-dvh overflow-hidden bg-[#05030f] font-mono text-white">
-      {/* Brand glow — stronger homepage blue → deep-navy fade. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-20"
-        style={{
-          background:
-            "radial-gradient(120% 70% at 50% -8%, rgba(0,130,255,0.5) 0%, rgba(20,4,110,0.24) 32%, transparent 64%), linear-gradient(to bottom, #0b0e40 0%, #080628 24%, #05030f 56%, #04020a 100%)",
-        }}
-      />
-      {/* Fine grain for texture/depth. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-10 opacity-[0.07] mix-blend-overlay"
-        style={{ backgroundImage: GRAIN_SVG, backgroundSize: "180px 180px" }}
-      />
-
-      {/* Minimal header — lowercase mono, matches homepage chrome. Page is
-          unlisted / noindex, so no marketing nav. */}
-      <header className="mx-auto flex max-w-[1080px] items-center justify-between px-6 py-6">
-        <span className="font-mono text-sm text-white/80">
-          marek klenotič
-        </span>
-        <div className="flex items-center gap-3 font-mono text-sm">
-          <Link
-            href="/"
-            className={`rounded-sm text-white/50 transition-colors hover:text-white ${FOCUS_RING}`}
-          >
-            mklenotic.com
+    <main className="flex min-h-dvh flex-col items-center bg-white px-4 pt-16 pb-24">
+      <div className="flex w-full max-w-[640px] flex-col">
+        {/* Top nav — mirrors the blog post breadcrumb. Page is unlisted /
+            noindex, so no marketing chrome. */}
+        <nav
+          aria-label="CV navigation"
+          className="mb-16 self-start font-mono text-[0.8125rem] text-black"
+        >
+          <Link href="/" className="transition-colors hover:text-blue-600">
+            ← home
           </Link>
-          <span aria-hidden className="text-white/25">
-            /
+          <span className="text-black/40"> / </span>
+          <span className="text-black/40">cv</span>
+        </nav>
+
+        {/* Hero — centered editorial header. */}
+        <header className="flex flex-col items-center text-center">
+          <span className="mb-6 block font-mono text-[0.6875rem] tracking-wider text-black/50 uppercase">
+            Curriculum Vitae
           </span>
-          <span className="text-white/40">cv</span>
-        </div>
-      </header>
 
-      {/* Hero */}
-      <motion.section
-        className="relative isolate mx-auto max-w-[1080px] px-6 pt-8 pb-6 md:pt-14"
-        {...revealProps}
-      >
-        {/* Hero-local electric blue field — pushes the above-the-fold canvas to
-            homepage intensity rather than near-black. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-48 -z-10 h-[760px]"
-          style={{
-            background:
-              "radial-gradient(68% 60% at 50% 4%, rgba(0,130,255,0.55) 0%, rgba(44,18,155,0.32) 38%, transparent 72%)",
-          }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-48 -z-10 h-[760px] opacity-[0.12] mix-blend-overlay"
-          style={{
-            backgroundImage: GRAIN_SVG,
-            backgroundSize: "180px 180px",
-          }}
-        />
+          <div className="mb-8 w-full max-w-[280px] overflow-hidden rounded-md border border-black/10">
+            <Image
+              src="/about/cv-klenoticmarek/portrait.jpg"
+              alt="Portrait of Marek Klenotič wearing a white TALENT INSIDE t-shirt"
+              width={910}
+              height={946}
+              priority
+              className="h-auto w-full object-cover"
+              sizes="280px"
+            />
+          </div>
 
-        <h1 className="max-w-3xl font-mono text-3xl leading-tight font-medium break-words md:text-5xl">
-          <span className="text-white/40">Hi! I&apos;m </span>
-          <span className="text-white">Marek Klenotič</span>
-        </h1>
+          <h1 className="font-mono text-[1.802rem] font-bold leading-[1.3] tracking-[-0.02em] text-black md:text-[2.25rem]">
+            Hi! I&apos;m Marek Klenotič
+          </h1>
 
-        <HeroBio />
+          <div className="mt-8">
+            <CtaGroup />
+          </div>
+        </header>
 
-        <div className="mt-10 flex flex-wrap items-center gap-3">
-          {HERO_CTAS.map((cta) => (
-            <CtaButton key={cta.label} {...cta} />
-          ))}
+        {/* Bio journey — left-aligned prose in the centered column. */}
+        <div className="mt-16">
+          <HeroBio />
         </div>
 
-        <div className="relative mt-14 overflow-hidden rounded-4xl border border-blue-800/40 bg-black/40 shadow-[0_40px_90px_-40px_rgba(0,60,200,0.35)] backdrop-blur-xl md:max-w-[720px]">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1/2 bg-linear-to-b from-white/10 to-transparent"
-          />
-          <Image
-            src="/about/cv-klenoticmarek/portrait.jpg"
-            alt="Portrait of Marek Klenotič wearing a white TALENT INSIDE t-shirt"
-            width={910}
-            height={946}
-            priority
-            className="h-auto w-full object-cover"
-            sizes="(max-width: 768px) 100vw, 720px"
-          />
-        </div>
-      </motion.section>
-
-      <div className="space-y-4 pt-6 pb-4">
-        {/* Experience */}
-        <Section kicker="Who Gave Me a Chance" title="Experience">
-          <ul className="-mt-1 divide-y divide-white/5">
-            {EXPERIENCE.map((item) => (
-              <li
-                key={`${item.company}-${item.year}`}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-3 first:pt-0 last:pb-0"
-              >
-                <span className="text-base text-white/80 md:text-lg">
-                  <span className="font-medium text-white">{item.company}</span>
-                  <span className="text-white/55"> / {item.role}</span>
-                </span>
-                <span className="text-right font-mono text-sm text-white/60 tabular-nums md:text-base">
-                  {item.year}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-
-        {/* Quote */}
-        <motion.section
-          className="mx-auto max-w-[1080px] px-6 py-12 md:py-16"
-          {...revealProps}
-        >
-          <blockquote className="mx-auto max-w-3xl text-center text-2xl leading-snug font-light text-white/85 italic md:text-4xl">
-            &ldquo;I am a responsible, creative, and organized team player who
-            emphasizes common sense and freedom.&rdquo;
-          </blockquote>
-        </motion.section>
-
-        {/* Education */}
-        <Section kicker="Who Taught Me What I Know" title="Education">
-          <ul className="space-y-5">
-            {EDUCATION.map((item) => (
-              <li key={item.title} className="text-base text-white/80 md:text-lg">
-                <span className="text-white/55">{item.years}</span> /{" "}
-                <span className="font-medium text-white">{item.title}</span> /{" "}
-                <span className="text-white/65">{item.place}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-
-        {/* Certificates / Skills */}
-        <Section kicker="Add-ons and Level-ups" title="Certificates & Skills">
-          <div className="space-y-4">
-            {SKILL_GROUPS.map((group) => (
-              <div
-                key={group.label}
-                className="flex flex-wrap items-center gap-2"
-              >
-                <span className="mr-1 w-full text-xs font-medium tracking-wide text-blue-200/45 uppercase md:w-32 md:shrink-0">
-                  {group.label}
-                </span>
-                {group.items.map((item) => (
-                  <span
-                    key={item}
-                    className="rounded-full border border-blue-400/40 bg-blue-500/[0.10] px-3 py-1 text-sm text-white/85 transition-colors hover:border-blue-300/60 hover:bg-blue-500/[0.18] hover:text-white"
-                  >
-                    {item}
+        <div className="mt-16 flex flex-col gap-16">
+          {/* Experience */}
+          <Section kicker="Who Gave Me a Chance" title="Experience">
+            <ul className="flex flex-col">
+              {EXPERIENCE.map((item) => (
+                <li
+                  key={`${item.company}-${item.year}`}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 border-t border-black/10 py-3 first:border-t-0 first:pt-0"
+                >
+                  <span className="font-mono text-base text-black">
+                    <span className="font-medium">{item.company}</span>
+                    <span className="text-black/50"> / {item.role}</span>
                   </span>
-                ))}
-              </div>
-            ))}
-          </div>
-        </Section>
+                  <span className="text-right font-mono text-sm text-black/45 tabular-nums">
+                    {item.year}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Section>
 
-        {/* Sidequesting */}
-        <Section kicker="Sidequesting" title="Other experience">
-          <ul className="-mt-1 divide-y divide-white/5">
-            {SIDEQUESTS.map((item) => (
-              <li
-                key={`${item.role}-${item.years}`}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-3 first:pt-0 last:pb-0"
-              >
-                <span className="text-base text-white/80 md:text-lg">
-                  <span className="font-medium text-white">{item.role}</span>
-                  {item.detail ? (
-                    <span className="text-white/55"> / {item.detail}</span>
-                  ) : null}
-                </span>
-                <span className="text-right font-mono text-sm text-white/60 tabular-nums md:text-base">
-                  {item.years}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Section>
+          {/* Quote */}
+          <section className="w-full border-t border-black/10 pt-16">
+            <blockquote className="mx-auto max-w-[36ch] text-center font-mono text-xl font-light leading-snug text-black/70 italic">
+              &ldquo;I am a responsible, creative, and organized team player who
+              emphasizes common sense and freedom.&rdquo;
+            </blockquote>
+          </section>
 
-        {/* Hobbies */}
-        <Section kicker="Having Fun" title="Hobbies">
-          <div className="space-y-5">
-            <p className="max-w-md text-base text-white/60 md:text-lg">
-              Chess on Chess.com as{" "}
-              <a
-                href="https://www.chess.com/member/ZasUtopilDamu"
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`rounded-sm font-medium text-white underline decoration-blue-400/50 underline-offset-4 transition-colors hover:decoration-blue-300 ${FOCUS_RING}`}
-              >
-                @ZasUtopilDamu
-              </a>{" "}
-              — always chasing that next Brilliant Move.
-            </p>
-            <HobbiesTicker />
-          </div>
-        </Section>
+          {/* Education */}
+          <Section kicker="Who Taught Me What I Know" title="Education">
+            <ul className="flex flex-col">
+              {EDUCATION.map((item) => (
+                <li
+                  key={item.title}
+                  className="border-t border-black/10 py-4 font-mono text-base first:border-t-0 first:pt-0"
+                >
+                  <span className="block text-sm text-black/45">
+                    {item.years}
+                  </span>
+                  <span className="mt-1 block font-medium text-black">
+                    {item.title}
+                  </span>
+                  <span className="mt-0.5 block text-sm text-black/55">
+                    {item.place}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Section>
 
-        {/* Closing — pair the quote with a clear action instead of a lone line. */}
-        <motion.section
-          className="mx-4 pt-2 md:mx-auto md:max-w-[1080px]"
-          {...revealProps}
-        >
-          <GlassCard>
-            <div className="flex flex-col items-center gap-6 px-6 py-14 text-center md:py-20">
-              <p className="max-w-xl text-2xl leading-snug font-light text-white/80 italic md:text-3xl">
-                Past is the history, the next is a mystery.
+          {/* Certificates / Skills — kept blog-plain: a quiet mono list rather
+              than a pill component kit. */}
+          <Section kicker="Add-ons and Level-ups" title="Certificates & Skills">
+            <ul className="flex flex-col">
+              {SKILL_GROUPS.map((group) => (
+                <li
+                  key={group.label}
+                  className="grid gap-x-4 border-t border-black/10 py-3 first:border-t-0 first:pt-0 md:grid-cols-[8rem_minmax(0,1fr)]"
+                >
+                  <span className="font-mono text-[0.6875rem] font-medium tracking-wide text-black/40 uppercase">
+                    {group.label}
+                  </span>
+                  <span className="mt-1 font-mono text-base text-black md:mt-0">
+                    {group.items.join(", ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Section>
+
+          {/* Sidequesting */}
+          <Section kicker="Sidequesting" title="Other experience">
+            <ul className="flex flex-col">
+              {SIDEQUESTS.map((item) => (
+                <li
+                  key={`${item.role}-${item.years}`}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 border-t border-black/10 py-3 first:border-t-0 first:pt-0"
+                >
+                  <span className="font-mono text-base text-black">
+                    <span className="font-medium">{item.role}</span>
+                    {item.detail ? (
+                      <span className="text-black/50"> / {item.detail}</span>
+                    ) : null}
+                  </span>
+                  <span className="text-right font-mono text-sm text-black/45 tabular-nums">
+                    {item.years}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Section>
+
+          {/* Hobbies */}
+          <Section kicker="Having Fun" title="Hobbies">
+            <div className="space-y-6">
+              <p className="font-mono text-base font-light leading-relaxed text-black/70">
+                Chess on Chess.com as{" "}
+                <a
+                  href="https://www.chess.com/member/ZasUtopilDamu"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`rounded-sm font-medium text-black underline decoration-black/30 underline-offset-2 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
+                >
+                  @ZasUtopilDamu
+                </a>{" "}
+                — always chasing that next Brilliant Move.
               </p>
-              <p className="max-w-md text-sm text-white/55 md:text-base">
-                Open to the next chapter — grab the CV or say hello.
-              </p>
-              <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
-                <CtaButton {...HERO_CTAS[0]} />
-                <CtaButton {...HERO_CTAS[1]} />
-              </div>
+              <HobbiesTicker />
             </div>
-          </GlassCard>
-        </motion.section>
-      </div>
+          </Section>
+        </div>
 
-      {/* Footer bar — lowercase mono, mirrors the homepage footer. */}
-      <footer className="mx-auto flex max-w-[1080px] items-center justify-center gap-3 px-6 py-10 font-mono text-xs text-white/35">
-        <span>mklenotic.com</span>
-        <span aria-hidden>|</span>
-        <span>© {new Date().getFullYear()}</span>
-      </footer>
+        {/* Closing — exact quote, airy and centered. */}
+        <footer className="mt-20 w-full border-t border-black/10 pt-16 text-center">
+          <p className="mx-auto max-w-[34ch] font-mono text-xl font-light leading-snug text-black/70 italic md:text-2xl">
+            The past is history, next is a mystery.
+          </p>
+        </footer>
+      </div>
     </main>
   );
 }

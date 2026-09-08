@@ -35,7 +35,7 @@ function MarqueeColumn({
         {loop.map((src, i) => (
           <div
             key={`${src}-${i}`}
-            className="relative aspect-square overflow-hidden rounded-2xl ring-1 ring-white/10"
+            className="relative aspect-square overflow-hidden rounded-md ring-1 ring-black/10"
           >
             <Image
               src={src}
@@ -56,22 +56,14 @@ export default function HobbiesTicker() {
   const columnA = COLLAGES.slice(0, half);
   const columnB = COLLAGES.slice(half);
 
+  // Plain blog figure treatment: 1px black/10 border, ~6px radius, no fade
+  // masks — the marquee simply clips at the frame edge.
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-blue-900/40 bg-black/40 p-3 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.6)] backdrop-blur-xl">
-      <div className="grid h-[380px] grid-cols-2 gap-3 md:h-[460px]">
+    <div className="overflow-hidden rounded-md border border-black/10 p-2">
+      <div className="grid h-[380px] grid-cols-2 gap-2 md:h-[460px]">
         <MarqueeColumn images={columnA} dir="up" duration={40} />
         <MarqueeColumn images={columnB} dir="down" duration={46} />
       </div>
-
-      {/* Fade the scrolling tiles into the page canvas at the card edges. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-16 rounded-t-3xl bg-linear-to-b from-[#05030f] to-transparent"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-3xl bg-linear-to-t from-[#05030f] to-transparent"
-      />
     </div>
   );
 }
