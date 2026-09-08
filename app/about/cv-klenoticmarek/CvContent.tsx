@@ -3,22 +3,30 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
+import { motion } from "motion/react";
 import { trackEvent } from "@/lib/mixpanel";
 import HobbiesTicker from "./HobbiesTicker";
 
 const CONTACT_HREF = "mailto:klenoticmarek@mklenotic.com";
 const CV_PDF_HREF = "/about/cv-klenoticmarek/Marek-Klenotic-CV.pdf";
 
+// Tiled fractal-noise grain, layered under the content to give the near-black
+// canvas the same textured depth as the homepage hero (which uses image grain).
+const GRAIN_SVG =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+
 type CtaVariant = "primary" | "outline";
 
-const HERO_CTAS: {
+type Cta = {
   label: string;
   href: string;
   variant: CtaVariant;
   download?: boolean;
   external?: boolean;
   icon?: "download" | "external";
-}[] = [
+};
+
+const HERO_CTAS: Cta[] = [
   {
     label: "Download cv",
     href: CV_PDF_HREF,
@@ -97,6 +105,9 @@ const SIDEQUESTS: { role: string; detail?: string; years: string }[] = [
   { role: "Student Union UTB", years: "2015 – 2019" },
 ];
 
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#05030f]";
+
 function CompanyLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a
@@ -104,7 +115,7 @@ function CompanyLink({ href, children }: { href: string; children: ReactNode }) 
       target="_blank"
       rel="noopener noreferrer"
       onClick={() => trackEvent("cv_bio_company_clicked", { href })}
-      className="font-medium text-white underline decoration-white/50 underline-offset-4 transition-colors hover:text-white hover:decoration-[#FF8008]"
+      className={`rounded-sm font-medium text-white underline decoration-blue-400/50 underline-offset-4 transition-colors hover:text-white hover:decoration-blue-300 ${FOCUS_RING}`}
     >
       {children}
     </a>
@@ -253,14 +264,7 @@ function ToggleChevron({ expanded }: { expanded: boolean }) {
   );
 }
 
-function CtaButton({
-  label,
-  href,
-  variant,
-  download,
-  external,
-  icon,
-}: (typeof HERO_CTAS)[number]) {
+function CtaButton({ label, href, variant, download, external, icon }: Cta) {
   const onClick = () => trackEvent("cv_cta_clicked", { cta: label, href });
   const anchorProps = {
     href,
@@ -273,7 +277,10 @@ function CtaButton({
   // shadow that snaps in on hover (see the homepage footer CTA).
   if (variant === "primary") {
     return (
-      <a {...anchorProps} className="group relative inline-flex font-mono">
+      <a
+        {...anchorProps}
+        className={`group relative inline-flex rounded-full font-mono ${FOCUS_RING}`}
+      >
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 translate-x-[2px] translate-y-[5px] rounded-full"
@@ -291,7 +298,7 @@ function CtaButton({
   return (
     <a
       {...anchorProps}
-      className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.03] px-6 py-3 font-mono text-sm text-white/70 backdrop-blur-sm transition-colors duration-200 hover:border-white/40 hover:text-white"
+      className={`inline-flex items-center gap-2 rounded-full border border-blue-400/25 bg-blue-500/[0.06] px-6 py-3 font-mono text-sm text-white/75 backdrop-blur-sm transition-colors duration-200 hover:border-blue-300/50 hover:bg-blue-500/10 hover:text-white ${FOCUS_RING}`}
     >
       <span>{label}</span>
       {icon === "external" ? <ExternalIcon /> : null}
@@ -315,7 +322,7 @@ function HeroBio() {
 
   return (
     <div className="mt-8 max-w-2xl">
-      <div className="space-y-4 text-base leading-relaxed text-white/65 md:text-lg">
+      <div className="space-y-4 text-base leading-relaxed text-white/70 md:text-lg">
         {visibleParagraphs.map((paragraph) => (
           <p key={paragraph.id}>{paragraph.body}</p>
         ))}
@@ -325,11 +332,42 @@ function HeroBio() {
         type="button"
         onClick={toggle}
         aria-expanded={expanded}
-        className="mt-5 inline-flex items-center gap-1.5 font-mono text-sm font-medium text-white underline decoration-[#FF8008]/50 underline-offset-4 transition-colors hover:text-[#FF8008] hover:decoration-[#FF8008]"
+        className={`mt-5 inline-flex items-center gap-1.5 rounded-md font-mono text-sm font-medium text-white underline decoration-blue-400/60 underline-offset-4 transition-colors hover:text-blue-200 hover:decoration-blue-300 ${FOCUS_RING}`}
       >
         <span>{expanded ? "Read less" : "Read more"}</span>
         <ToggleChevron expanded={expanded} />
       </button>
+    </div>
+  );
+}
+
+const revealProps = {
+  initial: { opacity: 0, y: 24 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: "-80px" },
+  transition: { duration: 0.5, ease: "easeOut" as const },
+};
+
+function GlassCard({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`relative overflow-hidden rounded-4xl border border-blue-800/40 bg-black/20 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.55)] backdrop-blur-xl transition duration-300 ease-out hover:-translate-y-[3px] hover:border-blue-500/50 hover:shadow-[0_44px_100px_-32px_rgba(0,110,255,0.28)] ${className}`}
+    >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-linear-to-b from-white/10 to-transparent"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-24 left-1/2 h-48 w-2/3 -translate-x-1/2 rounded-full bg-blue-500/10 blur-3xl"
+      />
+      <div className="relative">{children}</div>
     </div>
   );
 }
@@ -346,15 +384,15 @@ function Section({
   id?: string;
 }) {
   return (
-    <section id={id} className="mx-4 md:mx-auto md:max-w-[1080px]">
-      <div className="relative overflow-hidden rounded-4xl border border-blue-900/40 bg-black/20 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-linear-to-b from-white/10 to-transparent"
-        />
-        <div className="relative grid gap-6 px-6 py-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] md:gap-10 md:px-10 md:py-14">
+    <motion.section
+      id={id}
+      className="mx-4 md:mx-auto md:max-w-[1080px]"
+      {...revealProps}
+    >
+      <GlassCard>
+        <div className="grid gap-5 px-6 py-10 md:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)] md:gap-8 md:px-10 md:py-14">
           <div>
-            <p className="font-mono text-xs tracking-[0.2em] text-white/40 uppercase">
+            <p className="font-mono text-xs tracking-[0.2em] text-blue-200/50 uppercase">
               {kicker}
             </p>
             <h2 className="mt-2 font-mono text-lg text-white md:text-xl">
@@ -363,44 +401,55 @@ function Section({
           </div>
           <div>{children}</div>
         </div>
-      </div>
-    </section>
+      </GlassCard>
+    </motion.section>
   );
 }
 
 export default function CvContent() {
   return (
     <main className="relative min-h-dvh overflow-hidden bg-[#05030f] font-mono text-white">
-      {/* Brand glow — brings the homepage blue → deep-navy gradient to the page. */}
+      {/* Brand glow — stronger homepage blue → deep-navy fade. */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0 -z-10"
+        className="pointer-events-none fixed inset-0 -z-20"
         style={{
           background:
-            "radial-gradient(120% 75% at 50% -10%, rgba(0,130,255,0.22) 0%, transparent 55%), linear-gradient(to bottom, #0a0724 0%, #05030f 55%, #04020a 100%)",
+            "radial-gradient(100% 60% at 50% -6%, rgba(0,130,255,0.38) 0%, rgba(17,0,88,0.18) 34%, transparent 66%), linear-gradient(to bottom, #0a0a30 0%, #070522 26%, #05030f 58%, #04020a 100%)",
         }}
       />
+      {/* Fine grain for texture/depth. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-10 opacity-[0.07] mix-blend-overlay"
+        style={{ backgroundImage: GRAIN_SVG, backgroundSize: "180px 180px" }}
+      />
 
-      {/* Minimal header — no marketing nav (page is unlisted / noindex). */}
+      {/* Minimal header — lowercase mono, matches homepage chrome. Page is
+          unlisted / noindex, so no marketing nav. */}
       <header className="mx-auto flex max-w-[1080px] items-center justify-between px-6 py-6">
-        <span className="text-xs tracking-[0.18em] text-white/60 uppercase">
-          Marek Klenotič
+        <span className="font-mono text-sm text-white/80">
+          marek klenotič
         </span>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 font-mono text-sm">
           <Link
             href="/"
-            className="text-xs text-white/45 transition-colors hover:text-white"
+            className={`rounded-sm text-white/50 transition-colors hover:text-white ${FOCUS_RING}`}
           >
             mklenotic.com
           </Link>
-          <span className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/70">
-            CV
+          <span aria-hidden className="text-white/25">
+            /
           </span>
+          <span className="text-white/40">cv</span>
         </div>
       </header>
 
       {/* Hero */}
-      <section className="mx-auto max-w-[1080px] px-6 pt-8 pb-6 md:pt-14">
+      <motion.section
+        className="mx-auto max-w-[1080px] px-6 pt-8 pb-6 md:pt-14"
+        {...revealProps}
+      >
         <h1 className="max-w-3xl text-3xl leading-tight font-medium tracking-tight break-words md:text-5xl">
           <span className="text-white/40">Hi! I&apos;m </span>
           <span className="text-white">Marek Klenotič</span>
@@ -414,10 +463,10 @@ export default function CvContent() {
           ))}
         </div>
 
-        <div className="relative mt-14 overflow-hidden rounded-4xl border border-blue-900/40 bg-black/40 shadow-[0_40px_90px_-40px_rgba(0,0,0,0.8)] backdrop-blur-xl md:max-w-[720px]">
+        <div className="relative mt-14 overflow-hidden rounded-4xl border border-blue-800/40 bg-black/40 shadow-[0_40px_90px_-40px_rgba(0,60,200,0.35)] backdrop-blur-xl md:max-w-[720px]">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-linear-to-b from-white/10 to-transparent"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-1/2 bg-linear-to-b from-white/10 to-transparent"
           />
           <Image
             src="/about/cv-klenoticmarek/portrait.jpg"
@@ -429,21 +478,23 @@ export default function CvContent() {
             sizes="(max-width: 768px) 100vw, 720px"
           />
         </div>
-      </section>
+      </motion.section>
 
       <div className="space-y-4 pt-6 pb-4">
         {/* Experience */}
         <Section kicker="Who Gave Me a Chance" title="Experience">
-          <ul className="space-y-4">
+          <ul className="-mt-1 divide-y divide-white/5">
             {EXPERIENCE.map((item) => (
               <li
                 key={`${item.company}-${item.year}`}
-                className="text-base text-white/80 md:text-lg"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-3 first:pt-0 last:pb-0"
               >
-                <span className="font-medium text-white">{item.company}</span>
-                <span className="text-white/40">
-                  {" "}
-                  / {item.role} / {item.year}
+                <span className="text-base text-white/80 md:text-lg">
+                  <span className="font-medium text-white">{item.company}</span>
+                  <span className="text-white/55"> / {item.role}</span>
+                </span>
+                <span className="text-right font-mono text-sm text-white/60 tabular-nums md:text-base">
+                  {item.year}
                 </span>
               </li>
             ))}
@@ -451,21 +502,24 @@ export default function CvContent() {
         </Section>
 
         {/* Quote */}
-        <section className="mx-auto max-w-[1080px] px-6 py-12 md:py-16">
-          <blockquote className="mx-auto max-w-3xl text-center text-2xl leading-snug font-light text-white/80 italic md:text-4xl">
+        <motion.section
+          className="mx-auto max-w-[1080px] px-6 py-12 md:py-16"
+          {...revealProps}
+        >
+          <blockquote className="mx-auto max-w-3xl text-center text-2xl leading-snug font-light text-white/85 italic md:text-4xl">
             &ldquo;I am a responsible, creative, and organized team player who
             emphasizes common sense and freedom.&rdquo;
           </blockquote>
-        </section>
+        </motion.section>
 
         {/* Education */}
         <Section kicker="Who Taught Me What I Know" title="Education">
           <ul className="space-y-5">
             {EDUCATION.map((item) => (
               <li key={item.title} className="text-base text-white/80 md:text-lg">
-                <span className="text-white/40">{item.years}</span> /{" "}
+                <span className="text-white/55">{item.years}</span> /{" "}
                 <span className="font-medium text-white">{item.title}</span> /{" "}
-                <span className="text-white/55">{item.place}</span>
+                <span className="text-white/65">{item.place}</span>
               </li>
             ))}
           </ul>
@@ -479,13 +533,13 @@ export default function CvContent() {
                 key={group.label}
                 className="flex flex-wrap items-center gap-2"
               >
-                <span className="mr-1 w-full text-xs font-medium tracking-wide text-white/35 uppercase md:w-32 md:shrink-0">
+                <span className="mr-1 w-full text-xs font-medium tracking-wide text-blue-200/45 uppercase md:w-32 md:shrink-0">
                   {group.label}
                 </span>
                 {group.items.map((item) => (
                   <span
                     key={item}
-                    className="rounded-full border border-white/15 bg-white/[0.03] px-3 py-1 text-sm text-white/75"
+                    className="rounded-full border border-blue-400/25 bg-blue-500/[0.06] px-3 py-1 text-sm text-white/80 transition-colors hover:border-blue-300/50 hover:bg-blue-500/10 hover:text-white"
                   >
                     {item}
                   </span>
@@ -497,17 +551,21 @@ export default function CvContent() {
 
         {/* Sidequesting */}
         <Section kicker="Sidequesting" title="Other experience">
-          <ul className="space-y-4">
+          <ul className="-mt-1 divide-y divide-white/5">
             {SIDEQUESTS.map((item) => (
               <li
                 key={`${item.role}-${item.years}`}
-                className="text-base text-white/80 md:text-lg"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 py-3 first:pt-0 last:pb-0"
               >
-                <span className="font-medium text-white">{item.role}</span>
-                {item.detail ? (
-                  <span className="text-white/55"> / {item.detail}</span>
-                ) : null}
-                <span className="text-white/40"> / {item.years}</span>
+                <span className="text-base text-white/80 md:text-lg">
+                  <span className="font-medium text-white">{item.role}</span>
+                  {item.detail ? (
+                    <span className="text-white/55"> / {item.detail}</span>
+                  ) : null}
+                </span>
+                <span className="text-right font-mono text-sm text-white/60 tabular-nums md:text-base">
+                  {item.years}
+                </span>
               </li>
             ))}
           </ul>
@@ -522,7 +580,7 @@ export default function CvContent() {
                 href="https://www.chess.com/member/ZasUtopilDamu"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-white underline decoration-white/50 underline-offset-4 transition-colors hover:decoration-[#FF8008]"
+                className={`rounded-sm font-medium text-white underline decoration-blue-400/50 underline-offset-4 transition-colors hover:decoration-blue-300 ${FOCUS_RING}`}
               >
                 @ZasUtopilDamu
               </a>{" "}
@@ -531,13 +589,34 @@ export default function CvContent() {
             <HobbiesTicker />
           </div>
         </Section>
+
+        {/* Closing — pair the quote with a clear action instead of a lone line. */}
+        <motion.section
+          className="mx-4 pt-2 md:mx-auto md:max-w-[1080px]"
+          {...revealProps}
+        >
+          <GlassCard>
+            <div className="flex flex-col items-center gap-6 px-6 py-14 text-center md:py-20">
+              <p className="max-w-xl text-2xl leading-snug font-light text-white/80 italic md:text-3xl">
+                Past is the history, the next is a mystery.
+              </p>
+              <p className="max-w-md text-sm text-white/55 md:text-base">
+                Open to the next chapter — grab the CV or say hello.
+              </p>
+              <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
+                <CtaButton {...HERO_CTAS[0]} />
+                <CtaButton {...HERO_CTAS[1]} />
+              </div>
+            </div>
+          </GlassCard>
+        </motion.section>
       </div>
 
-      {/* Footer */}
-      <footer className="px-6 py-24 text-center">
-        <p className="mx-auto max-w-xl text-2xl font-light text-white/55 italic md:text-3xl">
-          Past is the history, the next is a mystery.
-        </p>
+      {/* Footer bar — lowercase mono, mirrors the homepage footer. */}
+      <footer className="mx-auto flex max-w-[1080px] items-center justify-center gap-3 px-6 py-10 font-mono text-xs text-white/35">
+        <span>mklenotic.com</span>
+        <span aria-hidden>|</span>
+        <span>© {new Date().getFullYear()}</span>
       </footer>
     </main>
   );
