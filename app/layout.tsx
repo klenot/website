@@ -5,7 +5,7 @@ import {
   GoogleTagManagerNoscript,
 } from "@/components/analytics/GoogleTagManager";
 import MixpanelProvider from "@/components/analytics/MixpanelProvider";
-import { ibmPlexMono } from "./fonts";
+import { ibmPlexMono, instrumentSerif } from "./fonts";
 import { defaultMetadata } from "@/lib/seo";
 import "./globals.css";
 
@@ -28,7 +28,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${ibmPlexMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${ibmPlexMono.variable} ${instrumentSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <GoogleTagManagerHead />

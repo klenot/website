@@ -331,3 +331,48 @@ body::-webkit-scrollbar,
   text-transform: uppercase;
   color: rgb(0 0 0 / 0.55);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Private /cv page — Framer-style serif kickers + chess hobbies ticker
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.cv-kicker {
+  font-family: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
+  font-style: italic;
+}
+
+/* Vertical marquee used by the Hobbies chess "Brilliant Move" ticker. The track
+   holds two identical copies of the tile set, so translating by -50% loops
+   seamlessly. */
+@keyframes cv-ticker-up {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, -50%, 0);
+  }
+}
+
+@keyframes cv-ticker-down {
+  from {
+    transform: translate3d(0, -50%, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.cv-ticker-track {
+  will-change: transform;
+  animation: cv-ticker-up linear infinite;
+}
+
+.cv-ticker-track[data-dir="down"] {
+  animation-name: cv-ticker-down;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cv-ticker-track {
+    animation: none;
+  }
+}
