@@ -5,9 +5,9 @@ import Image from "next/image";
 type Tile = { src: string; move: string };
 
 const TILES: Tile[] = [
-  { src: "/cv/ticker/bd5.png", move: "Bd5" },
-  { src: "/cv/ticker/qxd4.png", move: "Qxd4" },
-  { src: "/cv/ticker/cxb3.png", move: "cxb3" },
+  { src: "/about/cv-klenoticmarek/ticker/bd5.png", move: "Bd5" },
+  { src: "/about/cv-klenoticmarek/ticker/qxd4.png", move: "Qxd4" },
+  { src: "/about/cv-klenoticmarek/ticker/cxb3.png", move: "cxb3" },
 ];
 
 const TILE_W = 132;
@@ -35,7 +35,7 @@ function TickerColumn({
         {loop.map((tile, i) => (
           <div
             key={`${tile.move}-${i}`}
-            className="overflow-hidden rounded-xl shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)] ring-1 ring-black/10"
+            className="overflow-hidden rounded-xl shadow-[0_8px_24px_-12px_rgba(0,0,0,0.7)] ring-1 ring-white/10"
             style={{ width: TILE_W, height: TILE_H }}
           >
             <Image
@@ -59,7 +59,7 @@ function TickerCard({
   columns: { dir: "up" | "down"; duration: number; order: Tile[] }[];
 }) {
   return (
-    <div className="relative aspect-[3/4] overflow-hidden rounded-3xl bg-[#c9c9c6] ring-1 ring-black/10">
+    <div className="relative aspect-[3/4] overflow-hidden rounded-3xl border border-blue-900/40 bg-black/40 ring-1 ring-white/10">
       <div className="absolute inset-0 flex items-center justify-center">
         {/* Rotated + scaled layer produces the diagonal mosaic clipped by the card. */}
         <div className="rotate-[-24deg] scale-[1.7]">
@@ -75,12 +75,12 @@ function TickerCard({
           </div>
         </div>
       </div>
-      {/* Soft edge vignette to blend the clipped tiles into the card. */}
+      {/* Soft edge vignette to blend the clipped tiles into the dark card. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 rounded-3xl"
         style={{
-          boxShadow: "inset 0 0 60px 12px rgba(200,200,197,0.55)",
+          boxShadow: "inset 0 0 60px 16px rgba(5,3,15,0.85)",
         }}
       />
     </div>
