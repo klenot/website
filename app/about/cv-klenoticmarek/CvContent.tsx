@@ -96,31 +96,55 @@ const SKILL_GROUPS: { label: string; items: string[] }[] = [
   { label: "Languages", items: ["Czech (native)", "English (C1)"] },
 ];
 
-const SHIP_GROUPS: { label: string; items: string[] }[] = [
+const SHIP_GROUPS: {
+  label: string;
+  items: { title: string; detail?: string }[];
+}[] = [
   {
     label: "Technical / builder",
     items: [
-      "Reverse engineering (VBA→JS logic for Planeo/FAST product formulas)",
-      "Data pipeline architecture (price-parity monitoring: Python, Postgres, Cloudflare)",
-      "Full-stack (Dattoo: React Native/Expo, Supabase)",
-      "Web scraping / data extraction",
+      {
+        title: "Reverse engineering",
+        detail: "VBA→JS logic for Planeo/FAST product formulas",
+      },
+      {
+        title: "Data pipeline architecture",
+        detail: "price-parity monitoring: Python, Postgres, Cloudflare",
+      },
+      {
+        title: "Full-stack",
+        detail: "Dattoo: React Native/Expo, Supabase",
+      },
+      { title: "Web scraping / data extraction" },
     ],
   },
   {
     label: "Marketing / GTM",
     items: [
-      "Competitive positioning (comparison pages vs Akeneo, Salsify, etc.)",
-      "Analytics implementation (GA4/GTM)",
-      "Outbound / sales copy (Apollo sequences, ICP work for DACH/Nordic)",
-      "Event / conference marketing (Reshoper booth, UTM strategy)",
+      {
+        title: "Competitive positioning",
+        detail: "comparison pages vs Akeneo, Salsify, etc.",
+      },
+      { title: "Analytics implementation", detail: "GA4/GTM" },
+      {
+        title: "Outbound / sales copy",
+        detail: "Apollo sequences, ICP work for DACH/Nordic",
+      },
+      {
+        title: "Event / conference marketing",
+        detail: "Reshoper booth, UTM strategy",
+      },
     ],
   },
   {
     label: "Management / ops",
     items: [
-      "Proposal writing & scoping (drum e-commerce, floor-plan app, onboarding system)",
-      "Client discovery synthesis (OKIN → action items)",
-      "Solo product ownership (Dattoo end to end)",
+      {
+        title: "Proposal writing & scoping",
+        detail: "drum e-commerce, floor-plan app, onboarding system",
+      },
+      { title: "Client discovery synthesis", detail: "OKIN → action items" },
+      { title: "Solo product ownership", detail: "Dattoo end to end" },
     ],
   },
 ];
@@ -469,16 +493,22 @@ function CertificatesSkills() {
         <div className="mt-10 flex flex-col gap-8">
           {SHIP_GROUPS.map((group) => (
             <div key={group.label}>
-              <span className="mb-2 block font-mono text-[0.6875rem] font-medium tracking-wide text-black/40 uppercase">
+              <span className="mb-3 block font-mono text-[0.75rem] font-semibold tracking-wide text-black/60 uppercase">
                 {group.label}
               </span>
-              <ul className="flex flex-col gap-1.5">
+              <ul className="flex flex-col gap-2">
                 {group.items.map((item) => (
                   <li
-                    key={item}
-                    className="font-mono text-base font-light leading-relaxed text-black/70"
+                    key={item.title}
+                    className="font-mono text-base leading-relaxed"
                   >
-                    {item}
+                    <span className="font-medium text-black">{item.title}</span>
+                    {item.detail ? (
+                      <span className="font-light text-black/55">
+                        {" "}
+                        — {item.detail}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
