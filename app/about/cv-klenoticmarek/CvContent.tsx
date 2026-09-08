@@ -298,7 +298,7 @@ function CtaButton({ label, href, variant, download, external, icon }: Cta) {
   return (
     <a
       {...anchorProps}
-      className={`inline-flex items-center gap-2 rounded-full border border-blue-400/25 bg-blue-500/[0.06] px-6 py-3 font-mono text-sm text-white/75 backdrop-blur-sm transition-colors duration-200 hover:border-blue-300/50 hover:bg-blue-500/10 hover:text-white ${FOCUS_RING}`}
+      className={`inline-flex items-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/[0.10] px-6 py-3 font-mono text-sm text-white/80 backdrop-blur-sm transition-colors duration-200 hover:border-blue-300/60 hover:bg-blue-500/[0.18] hover:text-white ${FOCUS_RING}`}
     >
       <span>{label}</span>
       {icon === "external" ? <ExternalIcon /> : null}
@@ -415,7 +415,7 @@ export default function CvContent() {
         className="pointer-events-none fixed inset-0 -z-20"
         style={{
           background:
-            "radial-gradient(100% 60% at 50% -6%, rgba(0,130,255,0.38) 0%, rgba(17,0,88,0.18) 34%, transparent 66%), linear-gradient(to bottom, #0a0a30 0%, #070522 26%, #05030f 58%, #04020a 100%)",
+            "radial-gradient(120% 70% at 50% -8%, rgba(0,130,255,0.5) 0%, rgba(20,4,110,0.24) 32%, transparent 64%), linear-gradient(to bottom, #0b0e40 0%, #080628 24%, #05030f 56%, #04020a 100%)",
         }}
       />
       {/* Fine grain for texture/depth. */}
@@ -447,10 +447,29 @@ export default function CvContent() {
 
       {/* Hero */}
       <motion.section
-        className="mx-auto max-w-[1080px] px-6 pt-8 pb-6 md:pt-14"
+        className="relative isolate mx-auto max-w-[1080px] px-6 pt-8 pb-6 md:pt-14"
         {...revealProps}
       >
-        <h1 className="max-w-3xl text-3xl leading-tight font-medium tracking-tight break-words md:text-5xl">
+        {/* Hero-local electric blue field — pushes the above-the-fold canvas to
+            homepage intensity rather than near-black. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 -top-48 -z-10 h-[760px]"
+          style={{
+            background:
+              "radial-gradient(68% 60% at 50% 4%, rgba(0,130,255,0.55) 0%, rgba(44,18,155,0.32) 38%, transparent 72%)",
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 -top-48 -z-10 h-[760px] opacity-[0.12] mix-blend-overlay"
+          style={{
+            backgroundImage: GRAIN_SVG,
+            backgroundSize: "180px 180px",
+          }}
+        />
+
+        <h1 className="max-w-3xl font-mono text-3xl leading-tight font-medium break-words md:text-5xl">
           <span className="text-white/40">Hi! I&apos;m </span>
           <span className="text-white">Marek Klenotič</span>
         </h1>
@@ -539,7 +558,7 @@ export default function CvContent() {
                 {group.items.map((item) => (
                   <span
                     key={item}
-                    className="rounded-full border border-blue-400/25 bg-blue-500/[0.06] px-3 py-1 text-sm text-white/80 transition-colors hover:border-blue-300/50 hover:bg-blue-500/10 hover:text-white"
+                    className="rounded-full border border-blue-400/40 bg-blue-500/[0.10] px-3 py-1 text-sm text-white/85 transition-colors hover:border-blue-300/60 hover:bg-blue-500/[0.18] hover:text-white"
                   >
                     {item}
                   </span>
