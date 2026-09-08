@@ -4,6 +4,10 @@ import Image from "next/image";
 
 type Tile = { src: string; move: string };
 
+// TEMPORARY PLACEHOLDER ART. The final chess "Brilliant Move" tiles will be
+// supplied later. To swap: drop the new images in
+// public/about/cv-klenoticmarek/ticker/ and update the src/move entries below
+// (portrait ~132×182 works best). No other layout changes needed.
 const TILES: Tile[] = [
   { src: "/about/cv-klenoticmarek/ticker/bd5.png", move: "Bd5" },
   { src: "/about/cv-klenoticmarek/ticker/qxd4.png", move: "Qxd4" },
