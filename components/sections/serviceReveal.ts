@@ -13,11 +13,12 @@ import { smoothstep } from "@/lib/math";
 // the same progress so the logos glide with the box instead of teleporting.
 export const SPREAD_BREAKPOINTS = [0, 0.25, 0.35, 0.8, 0.9, 1] as const;
 
-// Side inset as a FRACTION of the container width (so the box is dramatically
-// narrow when inset and reads full-bleed at 0). Responsive by construction:
-// `spreadMarginPx()` multiplies by the live container width, keeping Services'
-// marginX and CircleField's landing band in exact px lockstep on every screen.
-export const SPREAD_INSET_FRAC = [0.17, 0.17, 0, 0, 0.17, 0.17] as const;
+// Side inset as a FRACTION of the container width. The box starts dramatically
+// narrow and spreads wide — but KEEPS a gutter at max spread so it always reads
+// as the black services *card* (not a full-bleed void). Responsive by
+// construction: `spreadMarginPx()` multiplies by the live container width,
+// keeping Services' marginX and CircleField's landing band in exact px lockstep.
+export const SPREAD_INSET_FRAC = [0.17, 0.17, 0.035, 0.035, 0.17, 0.17] as const;
 
 // Clamp so the inset never collapses to nothing on phones nor grows absurd on
 // ultrawide displays.

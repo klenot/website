@@ -40,7 +40,8 @@ export default function Services({
   );
 
   const borderRadius = useTransform(scrollYProgress, (progress) => {
-    const px = interpolateProgress(progress, [0.25, 0.35, 0.8, 0.9], [24, 0, 0, 24]);
+    // Stay rounded even at max spread so it always reads as the services card.
+    const px = interpolateProgress(progress, [0.25, 0.35, 0.8, 0.9], [24, 14, 14, 24]);
     return `${px}px`;
   });
 
@@ -64,7 +65,7 @@ export default function Services({
       >
         <motion.p
           style={{ opacity: textOpacity }}
-          className="absolute inset-x-0 bottom-[12px] px-6 text-center font-mono text-white"
+          className="absolute inset-x-0 bottom-6 px-6 text-center font-mono text-white md:bottom-8"
         >
           Today&apos;s digital space is made for people of many talents.
         </motion.p>

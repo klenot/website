@@ -32,8 +32,9 @@ describe("spreadMarginPx", () => {
     expect(spreadMarginPx(0, 1000)).toBeCloseTo(170);
   });
 
-  it("is zero at full-bleed (progress 0.5)", () => {
-    expect(spreadMarginPx(0.5, 1000)).toBe(0);
+  it("keeps a gutter at max spread so it still reads as a card (progress 0.5)", () => {
+    // 3.5% of 1000px — a visible gutter, not full-bleed.
+    expect(spreadMarginPx(0.5, 1000)).toBeCloseTo(35);
   });
 
   it("clamps the inset on very narrow and very wide containers", () => {

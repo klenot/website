@@ -45,30 +45,30 @@ export type CoinMaterials = {
 };
 
 export function createCoinMaterials(): CoinMaterials {
+  // Dark frosted-glass rims — low metalness + high roughness = soft, diffuse
+  // specular (no chrome-toy glare). Subtle cool/neutral/warm tint variation.
   const rimMats = [
-    // cool steel
     new MeshStandardMaterial({
-      color: new Color(0.78, 0.82, 0.9),
-      metalness: 0.3,
-      roughness: 0.3,
+      color: new Color(0.28, 0.32, 0.4),
+      metalness: 0.1,
+      roughness: 0.62,
     }),
-    // neutral silver
     new MeshStandardMaterial({
-      color: new Color(0.88, 0.89, 0.9),
-      metalness: 0.22,
-      roughness: 0.4,
+      color: new Color(0.34, 0.35, 0.38),
+      metalness: 0.08,
+      roughness: 0.66,
     }),
-    // warm brass-ish
     new MeshStandardMaterial({
-      color: new Color(0.9, 0.85, 0.74),
-      metalness: 0.28,
-      roughness: 0.34,
+      color: new Color(0.4, 0.36, 0.31),
+      metalness: 0.1,
+      roughness: 0.6,
     }),
   ];
+  // Soft off-white body under the logo (matte, not glossy).
   const capMat = new MeshStandardMaterial({
-    color: new Color(0.95, 0.95, 0.97),
+    color: new Color(0.9, 0.9, 0.93),
     metalness: 0.0,
-    roughness: 0.45,
+    roughness: 0.6,
   });
   return { rimMats, capMat };
 }
@@ -143,6 +143,19 @@ export function createShadowTexture(): CanvasTexture {
   const tex = new CanvasTexture(canvas);
   tex.colorSpace = SRGBColorSpace;
   return tex;
+}
+
+/**
+ * Plain box-colored bar at the services box top edge — NO highlight/lit line
+ * (that read as an artifact). It is invisible against the black card and only
+ * occludes chips that dip behind it while straddling the "mouth", so they read
+ * as tucking under the lip instead of sliding over a color seam.
+ */
+export function createMouthOccluder(): Mesh {
+  const mat = new MeshBasicMaterial({ color: 0x000000, toneMapped: false });
+  const mesh = new Mesh(new PlaneGeometry(1, 1), mat);
+  mesh.renderOrder = 1;
+  return mesh;
 }
 
 export function createLights(): Light[] {
