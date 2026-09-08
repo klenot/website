@@ -103,7 +103,7 @@ function CompanyLink({ href, children }: { href: string; children: ReactNode }) 
       target="_blank"
       rel="noopener noreferrer"
       onClick={() => trackEvent("cv_bio_company_clicked", { href })}
-      className={`rounded-sm font-medium text-black underline decoration-black/25 underline-offset-4 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
+      className={`rounded-sm font-medium text-black underline decoration-black/30 underline-offset-2 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
     >
       {children}
     </a>
@@ -264,7 +264,7 @@ function CtaLink({ label, href, download, external, icon }: Cta) {
       onClick={onClick}
       {...(download ? { download: "" } : {})}
       {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-      className={`inline-flex items-center gap-1.5 rounded-sm font-mono text-sm font-medium text-black underline decoration-black/25 underline-offset-4 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
+      className={`inline-flex items-center gap-1.5 rounded-sm font-mono text-sm font-medium text-black underline decoration-black/30 underline-offset-2 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
     >
       <span>{label}</span>
       {icon === "download" ? <DownloadIcon /> : null}
@@ -343,7 +343,7 @@ function Section({
   id?: string;
 }) {
   return (
-    <section id={id} className="w-full border-t border-black/10 pt-14">
+    <section id={id} className="w-full border-t border-black/10 pt-16">
       <SectionHeading kicker={kicker} title={title} />
       {children}
     </section>
@@ -352,7 +352,7 @@ function Section({
 
 export default function CvContent() {
   return (
-    <main className="flex min-h-dvh flex-col items-center bg-white px-4 py-16">
+    <main className="flex min-h-dvh flex-col items-center bg-white px-4 pt-16 pb-24">
       <div className="flex w-full max-w-[640px] flex-col">
         {/* Top nav — mirrors the blog post breadcrumb. Page is unlisted /
             noindex, so no marketing chrome. */}
@@ -373,7 +373,7 @@ export default function CvContent() {
             Curriculum Vitae
           </span>
 
-          <div className="mb-8 w-full max-w-[280px] overflow-hidden rounded-2xl ring-1 ring-black/10 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.4)]">
+          <div className="mb-8 w-full max-w-[280px] overflow-hidden rounded-md border border-black/10">
             <Image
               src="/about/cv-klenoticmarek/portrait.jpg"
               alt="Portrait of Marek Klenotič wearing a white TALENT INSIDE t-shirt"
@@ -399,7 +399,7 @@ export default function CvContent() {
           <HeroBio />
         </div>
 
-        <div className="mt-16 flex flex-col gap-14">
+        <div className="mt-16 flex flex-col gap-16">
           {/* Experience */}
           <Section kicker="Who Gave Me a Chance" title="Experience">
             <ul className="flex flex-col">
@@ -421,7 +421,7 @@ export default function CvContent() {
           </Section>
 
           {/* Quote */}
-          <section className="w-full border-t border-black/10 pt-14">
+          <section className="w-full border-t border-black/10 pt-16">
             <blockquote className="mx-auto max-w-[36ch] text-center font-mono text-xl font-light leading-snug text-black/70 italic">
               &ldquo;I am a responsible, creative, and organized team player who
               emphasizes common sense and freedom.&rdquo;
@@ -505,7 +505,7 @@ export default function CvContent() {
                   href="https://www.chess.com/member/ZasUtopilDamu"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`rounded-sm font-medium text-black underline decoration-black/25 underline-offset-4 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
+                  className={`rounded-sm font-medium text-black underline decoration-black/30 underline-offset-2 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
                 >
                   @ZasUtopilDamu
                 </a>{" "}

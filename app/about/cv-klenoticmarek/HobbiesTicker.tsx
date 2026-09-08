@@ -35,7 +35,7 @@ function MarqueeColumn({
         {loop.map((src, i) => (
           <div
             key={`${src}-${i}`}
-            className="relative aspect-square overflow-hidden rounded-2xl ring-1 ring-black/10"
+            className="relative aspect-square overflow-hidden rounded-md ring-1 ring-black/10"
           >
             <Image
               src={src}
@@ -57,7 +57,7 @@ export default function HobbiesTicker() {
   const columnB = COLLAGES.slice(half);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-black/10 bg-black/[0.02] p-3 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.35)]">
+    <div className="relative overflow-hidden rounded-md border border-black/10 bg-black/[0.02] p-3">
       <div className="grid h-[380px] grid-cols-2 gap-3 md:h-[460px]">
         <MarqueeColumn images={columnA} dir="up" duration={40} />
         <MarqueeColumn images={columnB} dir="down" duration={46} />
@@ -66,11 +66,11 @@ export default function HobbiesTicker() {
       {/* Fade the scrolling tiles into the page canvas at the card edges. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-16 rounded-t-2xl bg-linear-to-b from-white to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-16 rounded-t-md bg-linear-to-b from-white to-transparent"
       />
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-2xl bg-linear-to-t from-white to-transparent"
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-md bg-linear-to-t from-white to-transparent"
       />
     </div>
   );
