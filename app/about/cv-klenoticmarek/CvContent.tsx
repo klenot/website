@@ -75,11 +75,54 @@ const EDUCATION: { years: string; title: string; place: string }[] = [
 
 const SKILL_GROUPS: { label: string; items: string[] }[] = [
   { label: "Certification", items: ["PMI CAPM"] },
+  {
+    label: "AI & agents",
+    items: ["Cursor", "Grok Bot", "multi-agent orchestration"],
+  },
   { label: "Analytics", items: ["GA4", "GTM"] },
   { label: "Web", items: ["HTML", "CSS", "React"] },
-  { label: "Code", items: ["JavaScript", "React Native (assisted)"] },
+  {
+    label: "Code",
+    items: [
+      "JavaScript",
+      "React Native",
+      "Python",
+      "Postgres",
+      "Expo",
+      "Supabase",
+    ],
+  },
   { label: "Email & CRM", items: ["MailerLite", "Targito"] },
   { label: "Languages", items: ["Czech (native)", "English (C1)"] },
+];
+
+const SHIP_GROUPS: { label: string; items: string[] }[] = [
+  {
+    label: "Technical / builder",
+    items: [
+      "Reverse engineering (VBA→JS logic for Planeo/FAST product formulas)",
+      "Data pipeline architecture (price-parity monitoring: Python, Postgres, Cloudflare)",
+      "Full-stack (Dattoo: React Native/Expo, Supabase)",
+      "Web scraping / data extraction",
+    ],
+  },
+  {
+    label: "Marketing / GTM",
+    items: [
+      "Competitive positioning (comparison pages vs Akeneo, Salsify, etc.)",
+      "Analytics implementation (GA4/GTM)",
+      "Outbound / sales copy (Apollo sequences, ICP work for DACH/Nordic)",
+      "Event / conference marketing (Reshoper booth, UTM strategy)",
+    ],
+  },
+  {
+    label: "Management / ops",
+    items: [
+      "Proposal writing & scoping (drum e-commerce, floor-plan app, onboarding system)",
+      "Client discovery synthesis (OKIN → action items)",
+      "Solo product ownership (Dattoo end to end)",
+    ],
+  },
 ];
 
 const SIDEQUESTS: { role: string; detail?: string; years: string }[] = [
@@ -385,6 +428,78 @@ function HeroBio() {
   );
 }
 
+// Certificates & Skills. The lead line and compact skill table are always
+// visible; the deeper "What I ship" breakdown sits behind a Read more toggle
+// that mirrors the bio interaction so the section stays quiet on first paint.
+function CertificatesSkills() {
+  const [expanded, setExpanded] = useState(false);
+
+  const toggle = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      trackEvent("cv_skills_read_more", { expanded: next });
+      return next;
+    });
+  };
+
+  return (
+    <div>
+      <p className="mb-8 font-mono text-base font-light leading-relaxed text-black/70">
+        Today, we don&rsquo;t ship alone. We ship 10× using AI agents. I&rsquo;m
+        focusing on that.
+      </p>
+
+      <ul className="flex flex-col">
+        {SKILL_GROUPS.map((group) => (
+          <li
+            key={group.label}
+            className="grid gap-x-4 border-t border-black/10 py-3 first:border-t-0 first:pt-0 md:grid-cols-[8rem_minmax(0,1fr)]"
+          >
+            <span className="font-mono text-[0.6875rem] font-medium tracking-wide text-black/40 uppercase">
+              {group.label}
+            </span>
+            <span className="mt-1 font-mono text-base text-black md:mt-0">
+              {group.items.join(", ")}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {expanded ? (
+        <div className="mt-10 flex flex-col gap-8">
+          {SHIP_GROUPS.map((group) => (
+            <div key={group.label}>
+              <span className="mb-2 block font-mono text-[0.6875rem] font-medium tracking-wide text-black/40 uppercase">
+                {group.label}
+              </span>
+              <ul className="flex flex-col gap-1.5">
+                {group.items.map((item) => (
+                  <li
+                    key={item}
+                    className="font-mono text-base font-light leading-relaxed text-black/70"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={expanded}
+        className={`mt-8 inline-flex items-center gap-1.5 rounded-sm font-mono text-sm font-medium text-black transition-colors hover:text-blue-600 ${FOCUS_RING}`}
+      >
+        <span>{expanded ? "Read less" : "Read more"}</span>
+        <ToggleChevron expanded={expanded} />
+      </button>
+    </div>
+  );
+}
+
 function SectionHeading({ kicker, title }: { kicker: string; title: string }) {
   return (
     <div className="mb-6">
@@ -510,23 +625,10 @@ export default function CvContent() {
           </Section>
 
           {/* Certificates / Skills — kept blog-plain: a quiet mono list rather
-              than a pill component kit. */}
+              than a pill component kit. Deep "What I ship" list sits behind a
+              Read more toggle mirroring the bio. */}
           <Section kicker="Add-ons and Level-ups" title="Certificates & Skills">
-            <ul className="flex flex-col">
-              {SKILL_GROUPS.map((group) => (
-                <li
-                  key={group.label}
-                  className="grid gap-x-4 border-t border-black/10 py-3 first:border-t-0 first:pt-0 md:grid-cols-[8rem_minmax(0,1fr)]"
-                >
-                  <span className="font-mono text-[0.6875rem] font-medium tracking-wide text-black/40 uppercase">
-                    {group.label}
-                  </span>
-                  <span className="mt-1 font-mono text-base text-black md:mt-0">
-                    {group.items.join(", ")}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <CertificatesSkills />
           </Section>
 
           {/* Sidequesting */}
