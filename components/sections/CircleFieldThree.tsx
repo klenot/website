@@ -3,17 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import {
-  ClampToEdgeWrapping,
-  LinearFilter,
-  LinearMipmapLinearFilter,
-  Mesh,
-  OrthographicCamera,
-  PlaneGeometry,
+  PerspectiveCamera,
   Scene,
   SRGBColorSpace,
   TextureLoader,
   WebGLRenderer,
-  type ShaderMaterial,
+  type Mesh,
   type Texture,
 } from "three";
 import {
@@ -33,6 +28,7 @@ import {
   spreadMarginPx,
 } from "./serviceReveal";
 import { PATH_HORIZONTAL, PATH_VERTICAL } from "./pathConfig";
+import { boxBandFromMargin } from "./circleLayoutCache";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   EMPTY_LAYOUT_CACHE,
@@ -47,10 +43,33 @@ import {
   makeCircles,
   placeCircles,
 } from "./circleFieldModel";
-import { createDiscMaterial } from "./circleDiscMaterial";
+import {
+  createCoin,
+  createCoinGeometry,
+  createLights,
+  createLip,
+  createMouthOccluder,
+  createShadow,
+  createShadowTexture,
+  type Coin,
+  type CoinGeometry,
+} from "./coinFactory";
 
-/** Quad is larger than the disc so the soft contact shadow has room to bleed. */
-const QUAD = 1.5;
+const FOV = 30;
+// z-depth tiers (world units on the pixel-mapped z=0 plane).
+const Z_NEAR = 120;
+const Z_FAR = -55;
+const HERO_LIFT = 90; // how far in front coins float while in the hero
+const MOUTH_DIP = -185; // extra z during the crossing → slip behind the lip
+
+const smoother = (t: number) => {
+  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+  return c * c * c * (c * (c * 6 - 15) + 10);
+};
+const gauss = (x: number, mu: number, sigma: number) => {
+  const d = (x - mu) / sigma;
+  return Math.exp(-0.5 * d * d);
+};
 
 type CircleFieldProps = {
   servicesRef: RefObject<HTMLElement | null>;
@@ -58,13 +77,6 @@ type CircleFieldProps = {
   svgRef: RefObject<SVGSVGElement | null>;
   pathSectionRef: RefObject<HTMLElement | null>;
   logosLandedProgress: MotionValue<number>;
-};
-
-type Disc = {
-  mesh: Mesh;
-  material: ShaderMaterial;
-  texture: Texture;
-  opacity: number;
 };
 
 type Metrics = {
@@ -86,8 +98,15 @@ export default function CircleFieldThree({
 
   const rendererRef = useRef<WebGLRenderer | null>(null);
   const sceneRef = useRef<Scene | null>(null);
-  const cameraRef = useRef<OrthographicCamera | null>(null);
-  const discsRef = useRef<Disc[]>([]);
+  const cameraRef = useRef<PerspectiveCamera | null>(null);
+  const camDistRef = useRef(1000);
+  const coinsRef = useRef<Coin[]>([]);
+  const shadowsRef = useRef<Mesh[]>([]);
+  const appearRef = useRef<number[]>([]);
+  const occluderRef = useRef<Mesh | null>(null);
+  const lipRef = useRef<Mesh | null>(null);
+  const geoRef = useRef<CoinGeometry | null>(null);
+
   const metricsRef = useRef<Metrics>({
     overlayDocTop: 0,
     overlayH: 1,
@@ -97,13 +116,12 @@ export default function CircleFieldThree({
 
   const visibleRef = useRef(false);
   const viewportRef = useRef({ w: 1, h: 1 });
-  const revealedRef = useRef(false);
   const landedRef = useRef(false);
-  const frameTimeRef = useRef(0);
+  const lastScrollRef = useRef(0);
   const layoutRef = useRef<LayoutCache>(EMPTY_LAYOUT_CACHE);
   const isDesktopRef = useRef(false);
+  const maxVisibleRef = useRef(CIRCLE_LOGOS.length);
 
-  // rAF controller state (dirty-flag loop — no always-on idle rendering).
   const runningRef = useRef(false);
   const rafRef = useRef(0);
   const staticRafRef = useRef(0);
@@ -119,7 +137,10 @@ export default function CircleFieldThree({
   }, [isDesktop]);
   useEffect(() => {
     reducedRef.current = Boolean(reduced);
-  }, [reduced]);
+    // Reduced motion renders the settled arrangement (coins gathered in the
+    // box); pin the copy so it's visible in that static frame.
+    if (reduced) logosLandedProgress.set(1);
+  }, [reduced, logosLandedProgress]);
 
   const { scrollYProgress } = useScroll({
     target: servicesRef,
@@ -174,9 +195,6 @@ export default function CircleFieldThree({
     updateMetrics();
   }, [boxRef, marginPx, pathSectionRef, svgRef, updateMetrics]);
 
-  // Renders one frame. `rest` = static resting pose (reduced motion / offscreen
-  // seed). Overlay→canvas mapping is derived from cached metrics + scrollY only
-  // (no per-frame getBoundingClientRect).
   const applyPoses = useCallback(
     (time: number, rest: boolean) => {
       const renderer = rendererRef.current;
@@ -185,79 +203,155 @@ export default function CircleFieldThree({
       if (!renderer || !scene || !camera) return;
 
       const cache = layoutRef.current;
-      const discs = discsRef.current;
-      const smoothing = rest ? 1 : 0.16;
+      const coins = coinsRef.current;
+      const shadows = shadowsRef.current;
+      const appear = appearRef.current;
+      const camDist = camDistRef.current;
 
       if (!cache.valid) {
-        for (const d of discs) {
-          d.opacity += (0 - d.opacity) * smoothing;
-          d.material.uniforms.uOpacity.value = d.opacity;
-          d.mesh.visible = d.opacity > 0.001;
-        }
         renderer.render(scene, camera);
         return;
       }
 
-      const { overlayDocTop, overlayH, canvasH } = metricsRef.current;
+      const { overlayH, canvasH, canvasW } = metricsRef.current;
       const scrollY = window.scrollY;
-      const overlayTopVp = overlayDocTop - scrollY;
-      // Sticky (top:0) canvas offset within the overlay, closed-form: no layout
-      // reads. offX is 0 because the canvas is left:0 / full width of overlay.
+      const overlayTopVp = metricsRef.current.overlayDocTop - scrollY;
       const clampMax = Math.max(0, overlayH - canvasH);
       const offY = -Math.min(Math.max(-overlayTopVp, 0), clampMax);
+
+      // Reduced motion: freeze at the settled (landed) arrangement, no drift.
+      const tv = rest ? 1 : travel.get();
+      const ptv = rest ? 0 : pathTravel.get();
+      const frameTime = rest ? 0 : time;
+      const mgn = marginPx.get();
+
+      // Drift/idle gain: full at the scrub ends, killed mid-handoff and while
+      // scrolling fast, so idle motion never fights the scrub / turnaround.
+      const nearEnd = Math.min(tv, 1 - tv);
+      const scrollVel = Math.abs(scrollY - lastScrollRef.current);
+      lastScrollRef.current = scrollY;
+      const velGain = 1 - Math.min(scrollVel / 55, 1) * 0.85;
+      const driftGain = rest ? 0 : (1 - smoother((0.32 - nearEnd) / 0.32)) * velGain;
 
       const poses = placeCircles({
         circles,
         cache,
-        travel: travel.get(),
-        pathTravel: pathTravel.get(),
-        marginPx: marginPx.get(),
+        travel: tv,
+        pathTravel: ptv,
+        marginPx: mgn,
         scrollY,
         scrollX: window.scrollX,
         viewportW: viewportRef.current.w,
         viewportH: viewportRef.current.h,
-        time,
-        rest,
+        time: frameTime,
+        rest: false,
         isDesktop: isDesktopRef.current,
-        maxVisible: CIRCLE_LOGOS.length,
+        maxVisible: maxVisibleRef.current,
         mobileHeroSlots: MOBILE_HERO_SLOTS,
         boxCount: BOX_COUNT,
       });
 
-      const reveal = !revealedRef.current;
       const scale = logoScaleForWidth(viewportRef.current.w);
+      const dockEase = smoother(tv);
 
-      for (let i = 0; i < discs.length; i++) {
-        const d = discs[i];
+      for (let i = 0; i < coins.length; i++) {
+        const coin = coins[i];
+        const shadow = shadows[i];
         const pose = poses[i];
-        const target = pose.hidden ? 0 : 1;
+        const c = circles[i];
 
-        if (reveal && !pose.hidden) d.opacity = rest ? 1 : 0;
-        d.opacity += (target - d.opacity) * smoothing;
-        d.material.uniforms.uOpacity.value = d.opacity;
-
-        if (d.opacity <= 0.001) {
-          d.mesh.visible = false;
+        if (pose.hidden) {
+          coin.group.visible = false;
+          shadow.visible = false;
           continue;
         }
-        d.mesh.visible = true;
 
-        d.mesh.position.x = pose.x;
-        d.mesh.position.y = canvasH - (pose.y + offY); // ortho origin bottom-left
+        const tier = c.depthTier ?? 0.5;
+        const nearF = 1 - tier;
 
-        const c = circles[i];
-        const lift = rest
-          ? 0.35
-          : 0.5 + 0.5 * Math.sin(time * (c.fx + 0.0002) + c.phase);
-        d.material.uniforms.uLift.value = lift;
+        // Appear (scale-in) reveal — avoids toggling opacity on opaque coins.
+        const ap = rest ? 1 : Math.min(1, appear[i] + 0.08);
+        appear[i] = ap;
+        const apEase = ap * ap * (3 - 2 * ap);
 
-        const breathe = rest ? 1 : 1 + Math.sin(time * (c.fy + 0.0002) + c.phase) * 0.015;
-        const quad = CIRCLE_LOGOS[i].size * scale * breathe * QUAD;
-        d.mesh.scale.set(quad, quad, 1);
-        d.mesh.renderOrder = Math.round(CIRCLE_LOGOS[i].size + lift * 4);
+        // --- depth (z) with the mouth dip during the dock (staggered per coin
+        //     so they don't all cross the lip on one synchronized line) ---
+        const dipMu = 0.5 + (tier - 0.5) * 0.14;
+        const dip = gauss(tv, dipMu, 0.16);
+        const zBox = Z_NEAR + (Z_FAR - Z_NEAR) * tier;
+        let zc: number;
+        if (c.origin === "box") {
+          zc = zBox;
+        } else {
+          const zHero = HERO_LIFT + nearF * 55;
+          zc = zHero + (zBox - zHero) * dockEase + MOUTH_DIP * dip;
+        }
+        zc += Math.sin(frameTime * 0.0004 + c.phase) * 7 * nearF * driftGain; // z bob
+
+        // --- screen anchor (overlay-local px -> world, y-up) + depth parallax ---
+        const parAmp = (0.4 + nearF) * 4.5 * driftGain;
+        const sx =
+          pose.x + Math.sin(frameTime * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
+        const syTop =
+          pose.y +
+          offY +
+          Math.cos(frameTime * (c.fy ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp * 0.7;
+        const worldScreenX = sx;
+        const worldScreenY = canvasH - syTop;
+
+        // Keep the projected center + size locked to the target px at any depth.
+        const f = (camDist - zc) / camDist;
+        const worldX = canvasW / 2 + (worldScreenX - canvasW / 2) * f;
+        const worldY = canvasH / 2 + (worldScreenY - canvasH / 2) * f;
+        const screenR = (CIRCLE_LOGOS[i].size * scale) / 2;
+        const worldR = screenR * f * apEase;
+
+        coin.group.visible = apEase > 0.01;
+        coin.group.position.set(worldX, worldY, zc);
+        coin.group.scale.setScalar(Math.max(0.0001, worldR));
+
+        // --- tilt + idle micro-yaw (amplitude by depth) + tip through the lip ---
+        // Tip leads the dip slightly and is wider so the forward lean is visible
+        // before the coin tucks under the rim.
+        const tipIn = c.origin === "box" ? 0 : gauss(tv, dipMu - 0.06, 0.2) * 0.42;
+        coin.group.rotation.x =
+          (c.tiltX ?? 0) +
+          tipIn +
+          Math.sin(frameTime * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * driftGain;
+        coin.group.rotation.y =
+          (c.tiltY ?? 0) +
+          Math.sin(frameTime * 0.00052 + (c.spinPhase ?? 0) * 1.3) *
+            0.09 *
+            (0.4 + nearF) *
+            driftGain;
+
+        // --- grounded soft contact shadow (reads over the hero) ---
+        const shMat = shadow.material as { opacity: number };
+        shadow.visible = true;
+        const shScale = screenR * f * 2 * 1.55;
+        shadow.position.set(worldX, worldY - worldR * 0.5, zc - 6);
+        shadow.scale.set(shScale, shScale, 1);
+        shMat.opacity = 0.32 * apEase;
       }
 
-      revealedRef.current = true;
+      // --- mouth: thin occluder tucks coins under the rim; soft lip in front
+      //     dissolves the seam and top-lights the settled cloud ---
+      const band = boxBandFromMargin(cache, mgn);
+      const boxW = Math.max(1, canvasW - 2 * mgn);
+      const topWorldY = canvasH - (band.bandTop + offY);
+      const occ = occluderRef.current;
+      if (occ) {
+        const occH = Math.min(48, Math.max(22, band.bandH * 0.05));
+        occ.position.set(canvasW / 2, topWorldY - occH / 2, 0);
+        occ.scale.set(boxW, occH, 1);
+      }
+      const lip = lipRef.current;
+      if (lip) {
+        const lipH = Math.min(160, Math.max(70, band.bandH * 0.2));
+        lip.position.set(canvasW / 2, topWorldY - lipH / 2, 0);
+        lip.scale.set(boxW, lipH, 1);
+      }
+
       renderer.render(scene, camera);
     },
     [circles, marginPx, pathTravel, travel],
@@ -272,24 +366,25 @@ export default function CircleFieldThree({
     updateMetrics();
     const { canvasW: w, canvasH: h } = metricsRef.current;
     viewportRef.current = { w: window.innerWidth, h: window.innerHeight };
+    maxVisibleRef.current = window.innerWidth < 768 ? 8 : CIRCLE_LOGOS.length;
 
-    // Mobile knobs: cap DPR harder on narrow viewports to keep fill-rate low.
     const narrow = window.innerWidth < 768;
     const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.25 : 2);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
 
-    camera.left = 0;
-    camera.right = w;
-    camera.top = h;
-    camera.bottom = 0;
+    const camDist = h / 2 / Math.tan((FOV * Math.PI) / 180 / 2);
+    camDistRef.current = camDist;
+    camera.fov = FOV;
+    camera.aspect = w / h;
+    camera.near = 1;
+    camera.far = camDist + 2000;
+    camera.position.set(w / 2, h / 2, camDist);
+    camera.lookAt(w / 2, h / 2, 0);
     camera.updateProjectionMatrix();
   }, [updateMetrics]);
 
-  // --- rAF controller: only runs while visible + tab foregrounded; reduced
-  // motion never spins a continuous loop (renders on demand instead). ---
-  // applyPoses changes identity with its deps; the loop reads it via a ref so
-  // the running rAF chain never needs to be torn down / recreated.
+  // --- rAF controller (dirty-flag; only while visible + tab foregrounded) ---
   const applyPosesRef = useRef(applyPoses);
   useEffect(() => {
     applyPosesRef.current = applyPoses;
@@ -306,7 +401,6 @@ export default function CircleFieldThree({
     runningRef.current = true;
     const tick = (time: number) => {
       if (!runningRef.current) return;
-      frameTimeRef.current = time;
       applyPosesRef.current(time, false);
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -317,7 +411,6 @@ export default function CircleFieldThree({
     if (staticRafRef.current) return;
     staticRafRef.current = requestAnimationFrame((time) => {
       staticRafRef.current = 0;
-      frameTimeRef.current = time;
       applyPosesRef.current(time, rest);
     });
   }, []);
@@ -345,77 +438,95 @@ export default function CircleFieldThree({
     const renderer = new WebGLRenderer({
       canvas,
       alpha: true,
-      antialias: !narrow, // shader already AAs the disc edge; skip MSAA on mobile
+      antialias: !narrow,
       premultipliedAlpha: false,
       powerPreference: narrow ? "low-power" : "high-performance",
     });
     renderer.setClearColor(0x000000, 0);
-    if ("outputColorSpace" in renderer) {
-      renderer.outputColorSpace = SRGBColorSpace;
-    }
+    if ("outputColorSpace" in renderer) renderer.outputColorSpace = SRGBColorSpace;
     rendererRef.current = renderer;
 
     const scene = new Scene();
     sceneRef.current = scene;
+    for (const light of createLights()) scene.add(light);
 
-    const camera = new OrthographicCamera(0, 1, 1, 0, -1000, 1000);
-    camera.position.z = 10;
+    const camera = new PerspectiveCamera(FOV, 1, 1, 5000);
     cameraRef.current = camera;
 
-    const geometry = new PlaneGeometry(1, 1);
+    const geo = createCoinGeometry();
+    geoRef.current = geo;
+    const shadowTex = createShadowTexture();
     const loader = new TextureLoader();
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
-    const discs: Disc[] = CIRCLE_LOGOS.map((logo) => {
-      const texture = loader.load(`/logos/${logo.file}`, () => {
-        // Draw as textures arrive so the field doesn't pop in blank.
+    const occluder = createMouthOccluder();
+    scene.add(occluder);
+    occluderRef.current = occluder;
+
+    const lip = createLip();
+    scene.add(lip);
+    lipRef.current = lip;
+
+    const coins: Coin[] = [];
+    const shadows: Mesh[] = [];
+    appearRef.current = CIRCLE_LOGOS.map(() => 0);
+
+    CIRCLE_LOGOS.forEach((logo) => {
+      const texture: Texture = loader.load(`/logos/${logo.file}`, () => {
         renderStatic(reducedRef.current);
       });
       texture.colorSpace = SRGBColorSpace;
       texture.anisotropy = maxAniso;
-      texture.minFilter = LinearMipmapLinearFilter;
-      texture.magFilter = LinearFilter;
-      texture.wrapS = ClampToEdgeWrapping;
-      texture.wrapT = ClampToEdgeWrapping;
-      texture.generateMipmaps = true;
 
-      const material = createDiscMaterial(texture);
-      material.uniforms.uDiscFrac.value = 1 / QUAD;
+      const shadow = createShadow(geo, shadowTex);
+      scene.add(shadow);
+      shadows.push(shadow);
 
-      const mesh = new Mesh(geometry, material);
-      mesh.visible = false;
-      mesh.frustumCulled = false;
-      scene.add(mesh);
-
-      return { mesh, material, texture, opacity: 0 };
+      const coin = createCoin(geo, texture);
+      scene.add(coin.group);
+      coins.push(coin);
     });
-    discsRef.current = discs;
+    coinsRef.current = coins;
+    shadowsRef.current = shadows;
 
     resize();
     remeasure();
-    revealedRef.current = false;
     applyPoses(0, reducedRef.current);
 
     return () => {
       stopLoop();
       if (staticRafRef.current) cancelAnimationFrame(staticRafRef.current);
       staticRafRef.current = 0;
-      for (const d of discs) {
-        scene.remove(d.mesh);
-        d.material.dispose();
-        d.texture.dispose();
+      for (const coin of coins) {
+        scene.remove(coin.group);
+        coin.rimMat.dispose();
+        coin.capMat.dispose();
+        coin.logoMat.dispose();
+        (coin.logoMat.map as Texture | null)?.dispose();
       }
-      geometry.dispose();
+      for (const shadow of shadows) {
+        scene.remove(shadow);
+        (shadow.material as { dispose: () => void }).dispose();
+      }
+      shadowTex.dispose();
+      geo.blank.dispose();
+      geo.decal.dispose();
+      geo.shadow.dispose();
+      (occluder.material as { dispose: () => void }).dispose();
+      occluder.geometry.dispose();
+      (lip.material as { map?: Texture | null; dispose: () => void }).map?.dispose();
+      (lip.material as { dispose: () => void }).dispose();
+      lip.geometry.dispose();
       renderer.dispose();
       rendererRef.current = null;
       sceneRef.current = null;
       cameraRef.current = null;
-      discsRef.current = [];
+      coinsRef.current = [];
+      shadowsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Resize + remeasure on viewport / breakpoint changes.
   useEffect(() => {
     resize();
     remeasure();
@@ -431,8 +542,6 @@ export default function CircleFieldThree({
     return () => window.removeEventListener("resize", onResize);
   }, [remeasure, renderStatic, resize, syncActive, isDesktop, pathConfig, reduced]);
 
-  // Pick up the SVG's late layout (path section) without churning on the box
-  // margin animation.
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
@@ -453,14 +562,9 @@ export default function CircleFieldThree({
         ease: "easeOut",
       });
     }
-    // Reduced motion has no continuous loop: nudge a static frame so the box
-    // circles still track the scrubbed box on wake.
     if (reducedRef.current && visibleRef.current) renderStatic(true);
   });
 
-  // Wake the loop / static render on scroll even when metrics say we're pinned;
-  // the closed-form offset needs a fresh scrollY, and reduced motion relies on
-  // this to stay glued to the page.
   useEffect(() => {
     const onScroll = () => {
       if (reducedRef.current) {
@@ -473,7 +577,6 @@ export default function CircleFieldThree({
     return () => window.removeEventListener("scroll", onScroll);
   }, [renderStatic, syncActive]);
 
-  // Visibility (offscreen) + tab-hidden gating.
   useEffect(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -488,7 +591,6 @@ export default function CircleFieldThree({
 
     const onVisibility = () => syncActive();
     document.addEventListener("visibilitychange", onVisibility);
-
     return () => {
       io.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
@@ -497,10 +599,7 @@ export default function CircleFieldThree({
 
   return (
     <div ref={overlayRef} aria-hidden className="pointer-events-none absolute inset-0 z-20">
-      <canvas
-        ref={canvasRef}
-        className="sticky left-0 top-0 block h-screen w-full"
-      />
+      <canvas ref={canvasRef} className="sticky left-0 top-0 block h-screen w-full" />
     </div>
   );
 }

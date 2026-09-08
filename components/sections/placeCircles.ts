@@ -17,6 +17,13 @@ export type CircleModel = {
   fy: number;
   phase: number;
   pathDest?: "start" | "end";
+  /** 0 = nearest camera tier, 1 = farthest. Consumed only by the 3D renderer. */
+  depthTier?: number;
+  /** Static rest tilt (radians) — 3D renderer only. */
+  tiltX?: number;
+  tiltY?: number;
+  /** Idle micro-yaw phase — 3D renderer only. */
+  spinPhase?: number;
 };
 
 export type CirclePose = {
@@ -153,13 +160,18 @@ export function placeCircles({
       ? 0
       : c.day * vmin * Math.cos(time * c.fy + c.phase) * driftDampen * fallDrift;
 
-    if (c.origin === "hero" && p === 0) {
+    // Padded clear zone around the hero headline: push hero coins out of an
+    // elliptical hole around "Hi, my name is Marek" so they never sit on type.
+    // Applies while the coin is still substantially in the hero (p small), and
+    // eases out as it docks so it doesn't fight the scrub.
+    if (c.origin === "hero" && p < 0.5) {
+      const zoneGain = 1 - smoothstep(p / 0.5);
       const textCx = heroW * 0.5;
       const textCy = isDesktop
-        ? heroH * 0.48
-        : heroSectionTop + heroSectionH * 0.5;
-      const zoneRx = heroW * (isDesktop ? 0.45 : 0.38);
-      const zoneRy = (isDesktop ? heroH : heroSectionH) * (isDesktop ? 0.2 : 0.16);
+        ? heroH * 0.46
+        : heroSectionTop + heroSectionH * 0.48;
+      const zoneRx = heroW * (isDesktop ? 0.42 : 0.4);
+      const zoneRy = (isDesktop ? heroH : heroSectionH) * (isDesktop ? 0.26 : 0.2);
 
       const fx = baseX + dx - textCx;
       const fy = baseY + dy - textCy;
@@ -169,7 +181,7 @@ export function placeCircles({
 
       if (d2 < 1 && d2 > 0.001) {
         const dist = Math.sqrt(d2);
-        const push = (1 - dist) * (1 - dist) * 90;
+        const push = (1 - dist) * (1 - dist) * 150 * zoneGain;
         dx += (nx / dist) * push;
         dy += (ny / dist) * push;
       }
