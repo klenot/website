@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { trackEvent } from "@/lib/mixpanel";
 import HobbiesTicker from "./HobbiesTicker";
 
@@ -43,7 +43,7 @@ const HERO_CTAS: {
 ];
 
 const EXPERIENCE: { company: string; role: string; year: string }[] = [
-  { company: "Bandits (Product Lasso)", role: "COO", year: "2025" },
+  { company: "Bandits (Lasso)", role: "COO", year: "2025" },
   { company: "Wonder Makers, s.r.o.", role: "Head of Marketing", year: "2024" },
   {
     company: "Easy Software (Easy Project / Easy Redmine)",
@@ -166,6 +166,69 @@ function CtaButton({
   );
 }
 
+function ShareIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" />
+      <path d="M16 6l-4-4-4 4" />
+      <path d="M12 2v14" />
+    </svg>
+  );
+}
+
+function ShareButton() {
+  const [copied, setCopied] = useState(false);
+  const base =
+    "group inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-medium transition-colors duration-200";
+  const styles =
+    "border border-black/15 bg-transparent text-black/70 hover:border-black/40 hover:text-black";
+
+  const copyToClipboard = async (url: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = url;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  };
+
+  const onClick = async () => {
+    const url =
+      typeof window !== "undefined" ? window.location.href : "";
+    try {
+      await copyToClipboard(url);
+      trackEvent("cv_cta_clicked", { cta: "Share", href: url });
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard access can fail (permissions / insecure context); leave label unchanged.
+    }
+  };
+
+  return (
+    <button type="button" onClick={onClick} className={`${base} ${styles}`}>
+      <span>{copied ? "Copied" : "Share"}</span>
+      <ShareIcon />
+    </button>
+  );
+}
+
 function Section({
   kicker,
   title,
@@ -266,14 +329,6 @@ export default function CvContent() {
         </ul>
       </Section>
 
-      {/* Quote */}
-      <section className="mx-auto max-w-[1080px] px-6 py-12 md:py-16">
-        <blockquote className="cv-kicker mx-auto max-w-3xl text-center text-2xl leading-snug text-black/75 md:text-4xl">
-          &ldquo;I am a responsible, creative, and organized team player who
-          emphasizes common sense and freedom.&rdquo;
-        </blockquote>
-      </section>
-
       {/* Education */}
       <Section kicker="Who Taught Me What I Know" title="Education">
         <ul className="space-y-5">
@@ -339,14 +394,23 @@ export default function CvContent() {
             >
               @ZasUtopilDamu
             </a>{" "}
-            — always chasing that next Brilliant Move.
+            — always chasing that next brilliant move or dumping my queen in 2s.
           </p>
           <HobbiesTicker />
+          <p className="max-w-md text-base text-black/60 md:text-lg">
+            And I run and bring Kindle almost everywhere.
+          </p>
         </div>
       </Section>
 
       {/* Footer */}
       <footer className="px-6 py-24 text-center">
+        <div className="mx-auto mb-14 flex max-w-3xl flex-wrap items-center justify-center gap-3">
+          {HERO_CTAS.map((cta) => (
+            <CtaButton key={cta.label} {...cta} />
+          ))}
+          <ShareButton />
+        </div>
         <p className="cv-kicker mx-auto max-w-xl text-2xl text-black/55 md:text-3xl">
           Past is the history, the next is a mystery.
         </p>
