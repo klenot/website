@@ -43,7 +43,7 @@ const HERO_CTAS: Cta[] = [
 ];
 
 const EXPERIENCE: { company: string; role: string; year: string }[] = [
-  { company: "Bandits (Product Lasso)", role: "COO", year: "2025" },
+  { company: "Bandits (Lasso)", role: "COO", year: "2025" },
   { company: "Wonder Makers, s.r.o.", role: "Head of Marketing", year: "2024" },
   {
     company: "Easy Software (Easy Project / Easy Redmine)",
@@ -233,6 +233,25 @@ function ExternalIcon() {
   );
 }
 
+function ShareIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" />
+      <path d="M16 6l-4-4-4 4" />
+      <path d="M12 2v14" />
+    </svg>
+  );
+}
+
 function ToggleChevron({ expanded }: { expanded: boolean }) {
   return (
     <svg
@@ -273,7 +292,52 @@ function CtaLink({ label, href, download, external, icon }: Cta) {
   );
 }
 
-function CtaGroup() {
+// Copies the current page URL to the clipboard with brief "Copied" feedback.
+// Matches the CtaLink treatment so it reads as part of the same set.
+function ShareCta() {
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = async (url: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = url;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  };
+
+  const onClick = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    try {
+      await copyToClipboard(url);
+      trackEvent("cv_cta_clicked", { cta: "Share", href: url });
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard can be blocked (permissions / insecure context); leave label unchanged.
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 rounded-sm font-mono text-sm font-medium text-black underline decoration-black/30 underline-offset-2 transition-colors hover:text-blue-600 hover:decoration-blue-500 ${FOCUS_RING}`}
+    >
+      <span aria-live="polite">{copied ? "Copied" : "Share"}</span>
+      <ShareIcon />
+    </button>
+  );
+}
+
+function CtaGroup({ withShare = false }: { withShare?: boolean }) {
   // One wrapping cluster with even gaps. The mobile max-width forces a balanced
   // 2 + 2 wrap (no lone orphan on ~390) and lifts on sm+ to a single row.
   return (
@@ -281,6 +345,7 @@ function CtaGroup() {
       {HERO_CTAS.map((cta) => (
         <CtaLink key={cta.label} {...cta} />
       ))}
+      {withShare ? <ShareCta /> : null}
     </div>
   );
 }
@@ -422,14 +487,6 @@ export default function CvContent() {
             </ul>
           </Section>
 
-          {/* Quote */}
-          <section className="w-full border-t border-black/10 pt-16">
-            <blockquote className="mx-auto max-w-[36ch] text-center font-mono text-xl font-light leading-snug text-black/70 italic">
-              &ldquo;I am a responsible, creative, and organized team player who
-              emphasizes common sense and freedom.&rdquo;
-            </blockquote>
-          </section>
-
           {/* Education */}
           <Section kicker="Who Taught Me What I Know" title="Education">
             <ul className="flex flex-col">
@@ -507,15 +564,22 @@ export default function CvContent() {
                 >
                   @ZasUtopilDamu
                 </a>{" "}
-                — always chasing that next Brilliant Move.
+                — always chasing that next brilliant move or dumping my queen in
+                2s.
               </p>
               <HobbiesTicker />
+              <p className="font-mono text-base font-light leading-relaxed text-black/70">
+                And I run and bring Kindle almost everywhere.
+              </p>
             </div>
           </Section>
         </div>
 
-        {/* Closing — exact quote, airy and centered. */}
+        {/* Closing — unified CTA row above the exact quote. */}
         <footer className="mt-20 w-full border-t border-black/10 pt-16 text-center">
+          <div className="mb-12">
+            <CtaGroup withShare />
+          </div>
           <p className="mx-auto max-w-[34ch] font-mono text-xl font-light leading-snug text-black/70 italic md:text-2xl">
             The past is history, next is a mystery.
           </p>
