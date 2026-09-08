@@ -9,14 +9,38 @@ import { smoothstep } from "@/lib/math";
 //   0.35–0.80  full-bleed hold (extra long — circles settle mid-way through)
 //   0.80–0.90  shrinking back
 //   0.90–1.00  inset again
-// Services maps these to marginX; CircleField uses its own deferred keyframes
-// so circles land after the box finishes spreading.
+// Services maps these to marginX; CircleField travel (below) is scrubbed across
+// the same progress so the logos glide with the box instead of teleporting.
 export const SPREAD_BREAKPOINTS = [0, 0.25, 0.35, 0.8, 0.9, 1] as const;
-export const SPREAD_MARGIN_PX = [8, 8, 0, 0, 8, 8] as const;
 
-// CircleField defers hero-circle travel until the box finishes spreading, then
-// completes the fall in a shorter window so logos don't lag behind scroll.
-export const CIRCLE_TRAVEL_BREAKPOINTS = [0, 0.35, 0.43, 0.8, 0.88, 1] as const;
+// Side inset as a FRACTION of the container width (so the box is dramatically
+// narrow when inset and reads full-bleed at 0). Responsive by construction:
+// `spreadMarginPx()` multiplies by the live container width, keeping Services'
+// marginX and CircleField's landing band in exact px lockstep on every screen.
+export const SPREAD_INSET_FRAC = [0.17, 0.17, 0, 0, 0.17, 0.17] as const;
+
+// Clamp so the inset never collapses to nothing on phones nor grows absurd on
+// ultrawide displays.
+const INSET_MIN_PX = 14;
+const INSET_MAX_PX = 260;
+
+/**
+ * Side margin (px) of the services box at a given scroll progress, for a given
+ * container width. Single source of truth shared by `Services` (visual box) and
+ * the circle field (landing band) — they must never drift.
+ */
+export function spreadMarginPx(progress: number, width: number): number {
+  const frac = interpolateProgress(progress, SPREAD_BREAKPOINTS, SPREAD_INSET_FRAC);
+  if (frac <= 0) return 0;
+  const px = frac * width;
+  return Math.max(INSET_MIN_PX, Math.min(INSET_MAX_PX, px));
+}
+
+// Hero-circle travel, scrubbed across a WIDE window with smoothstep easing so
+// the hero→box handoff feels continuous (not a teleport). Logos begin gliding
+// as the box starts spreading (~0.26) and are fully gathered by ~0.55, hold
+// through the full-bleed section, then rise back out as the box narrows.
+export const CIRCLE_TRAVEL_BREAKPOINTS = [0, 0.26, 0.55, 0.8, 0.95, 1] as const;
 export const CIRCLE_TRAVEL_VALUES = [0, 0, 1, 1, 0, 0] as const;
 
 // The scroll offset both Services and CircleField MUST pass to useScroll for the

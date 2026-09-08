@@ -5,6 +5,7 @@ import type { RefObject } from "react";
 import {
   animate,
   useAnimationFrame,
+  useMotionValue,
   useMotionValueEvent,
   useReducedMotion,
   useScroll,
@@ -15,9 +16,8 @@ import {
   CIRCLE_TRAVEL_BREAKPOINTS,
   CIRCLE_TRAVEL_VALUES,
   interpolateProgress,
-  SPREAD_BREAKPOINTS,
-  SPREAD_MARGIN_PX,
   SPREAD_OFFSET,
+  spreadMarginPx,
 } from "./serviceReveal";
 import { PATH_HORIZONTAL, PATH_VERTICAL } from "./pathConfig";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -74,10 +74,20 @@ export default function CircleField({
     offset: SPREAD_OFFSET,
   });
   const travel = useTransform(scrollYProgress, (progress) =>
-    interpolateProgress(progress, CIRCLE_TRAVEL_BREAKPOINTS, CIRCLE_TRAVEL_VALUES, (t) => t),
+    interpolateProgress(progress, CIRCLE_TRAVEL_BREAKPOINTS, CIRCLE_TRAVEL_VALUES),
   );
-  const marginPx = useTransform(scrollYProgress, (progress) =>
-    interpolateProgress(progress, SPREAD_BREAKPOINTS, SPREAD_MARGIN_PX),
+
+  const widthMV = useMotionValue(0);
+  useEffect(() => {
+    const measure = () =>
+      widthMV.set(overlayRef.current?.clientWidth ?? window.innerWidth);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [widthMV]);
+
+  const marginPx = useTransform([scrollYProgress, widthMV], ([progress, width]) =>
+    spreadMarginPx(progress as number, width as number),
   );
 
   useMotionValueEvent(travel, "change", (value) => {

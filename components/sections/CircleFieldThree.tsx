@@ -1,11 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
-import * as THREE from "three";
+import {
+  ClampToEdgeWrapping,
+  LinearFilter,
+  LinearMipmapLinearFilter,
+  Mesh,
+  OrthographicCamera,
+  PlaneGeometry,
+  Scene,
+  SRGBColorSpace,
+  TextureLoader,
+  WebGLRenderer,
+  type ShaderMaterial,
+  type Texture,
+} from "three";
 import {
   animate,
-  useAnimationFrame,
+  useMotionValue,
   useMotionValueEvent,
   useReducedMotion,
   useScroll,
@@ -16,16 +29,14 @@ import {
   CIRCLE_TRAVEL_BREAKPOINTS,
   CIRCLE_TRAVEL_VALUES,
   interpolateProgress,
-  SPREAD_BREAKPOINTS,
-  SPREAD_MARGIN_PX,
   SPREAD_OFFSET,
+  spreadMarginPx,
 } from "./serviceReveal";
 import { PATH_HORIZONTAL, PATH_VERTICAL } from "./pathConfig";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   EMPTY_LAYOUT_CACHE,
   measureLayoutCache,
-  measurePathEndpointsFromDom,
   type LayoutCache,
 } from "./circleLayoutCache";
 import {
@@ -37,7 +48,6 @@ import {
   placeCircles,
 } from "./circleFieldModel";
 import { createDiscMaterial } from "./circleDiscMaterial";
-import CircleField from "./CircleField";
 
 /** Quad is larger than the disc so the soft contact shadow has room to bleed. */
 const QUAD = 1.5;
@@ -50,38 +60,21 @@ type CircleFieldProps = {
   logosLandedProgress: MotionValue<number>;
 };
 
-function detectWebGL(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const canvas = document.createElement("canvas");
-    return Boolean(
-      window.WebGLRenderingContext &&
-        (canvas.getContext("webgl2") || canvas.getContext("webgl")),
-    );
-  } catch {
-    return false;
-  }
-}
-
 type Disc = {
-  mesh: THREE.Mesh;
-  material: THREE.ShaderMaterial;
-  texture: THREE.Texture;
+  mesh: Mesh;
+  material: ShaderMaterial;
+  texture: Texture;
   opacity: number;
 };
 
-export default function CircleFieldThree(props: CircleFieldProps) {
-  const [supported] = useState(detectWebGL);
+type Metrics = {
+  overlayDocTop: number;
+  overlayH: number;
+  canvasH: number;
+  canvasW: number;
+};
 
-  if (!supported) {
-    // No WebGL: fall back to the proven DOM/motion renderer.
-    return <CircleField {...props} />;
-  }
-
-  return <CircleFieldThreeCanvas {...props} />;
-}
-
-function CircleFieldThreeCanvas({
+export default function CircleFieldThree({
   servicesRef,
   boxRef,
   svgRef,
@@ -91,19 +84,30 @@ function CircleFieldThreeCanvas({
   const overlayRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const rendererRef = useRef<WebGLRenderer | null>(null);
+  const sceneRef = useRef<Scene | null>(null);
+  const cameraRef = useRef<OrthographicCamera | null>(null);
   const discsRef = useRef<Disc[]>([]);
-  const canvasSizeRef = useRef({ w: 1, h: 1 });
+  const metricsRef = useRef<Metrics>({
+    overlayDocTop: 0,
+    overlayH: 1,
+    canvasH: 1,
+    canvasW: 1,
+  });
 
-  const visibleRef = useRef(true);
+  const visibleRef = useRef(false);
   const viewportRef = useRef({ w: 1, h: 1 });
   const revealedRef = useRef(false);
   const landedRef = useRef(false);
   const frameTimeRef = useRef(0);
   const layoutRef = useRef<LayoutCache>(EMPTY_LAYOUT_CACHE);
   const isDesktopRef = useRef(false);
+
+  // rAF controller state (dirty-flag loop — no always-on idle rendering).
+  const runningRef = useRef(false);
+  const rafRef = useRef(0);
+  const staticRafRef = useRef(0);
+  const reducedRef = useRef(false);
 
   const reduced = useReducedMotion();
   const circles = useMemo(() => makeCircles(), []);
@@ -113,33 +117,42 @@ function CircleFieldThreeCanvas({
   useEffect(() => {
     isDesktopRef.current = isDesktop;
   }, [isDesktop]);
+  useEffect(() => {
+    reducedRef.current = Boolean(reduced);
+  }, [reduced]);
 
   const { scrollYProgress } = useScroll({
     target: servicesRef,
     offset: SPREAD_OFFSET,
   });
   const travel = useTransform(scrollYProgress, (progress) =>
-    interpolateProgress(progress, CIRCLE_TRAVEL_BREAKPOINTS, CIRCLE_TRAVEL_VALUES, (t) => t),
-  );
-  const marginPx = useTransform(scrollYProgress, (progress) =>
-    interpolateProgress(progress, SPREAD_BREAKPOINTS, SPREAD_MARGIN_PX),
+    interpolateProgress(progress, CIRCLE_TRAVEL_BREAKPOINTS, CIRCLE_TRAVEL_VALUES),
   );
 
-  useMotionValueEvent(travel, "change", (value) => {
-    const landed = value >= 0.98;
-    if (landed === landedRef.current) return;
-    landedRef.current = landed;
-    animate(logosLandedProgress, landed ? 1 : 0, {
-      duration: landed ? 0.6 : 0.25,
-      ease: "easeOut",
-    });
-  });
+  const widthMV = useMotionValue(0);
+  const marginPx = useTransform([scrollYProgress, widthMV], ([progress, width]) =>
+    spreadMarginPx(progress as number, width as number),
+  );
 
   const { scrollYProgress: pathProgress } = useScroll({
     target: pathSectionRef,
     offset: ["start end", "start start"],
   });
   const pathTravel = useTransform(pathProgress, [0, 1], [0, 1]);
+
+  const updateMetrics = useCallback(() => {
+    const overlay = overlayRef.current;
+    const canvas = canvasRef.current;
+    if (!overlay || !canvas) return;
+    const oRect = overlay.getBoundingClientRect();
+    metricsRef.current = {
+      overlayDocTop: oRect.top + window.scrollY,
+      overlayH: oRect.height,
+      canvasH: Math.max(1, canvas.clientHeight),
+      canvasW: Math.max(1, canvas.clientWidth),
+    };
+    widthMV.set(oRect.width);
+  }, [widthMV]);
 
   const remeasure = useCallback(() => {
     const overlay = overlayRef.current;
@@ -148,7 +161,6 @@ function CircleFieldThreeCanvas({
       layoutRef.current = EMPTY_LAYOUT_CACHE;
       return;
     }
-
     layoutRef.current = measureLayoutCache({
       overlay,
       box,
@@ -159,33 +171,25 @@ function CircleFieldThreeCanvas({
       marginPx: marginPx.get(),
       isDesktop: isDesktopRef.current,
     });
-  }, [boxRef, marginPx, pathSectionRef, svgRef]);
+    updateMetrics();
+  }, [boxRef, marginPx, pathSectionRef, svgRef, updateMetrics]);
 
+  // Renders one frame. `rest` = static resting pose (reduced motion / offscreen
+  // seed). Overlay→canvas mapping is derived from cached metrics + scrollY only
+  // (no per-frame getBoundingClientRect).
   const applyPoses = useCallback(
     (time: number, rest: boolean) => {
       const renderer = rendererRef.current;
       const scene = sceneRef.current;
       const camera = cameraRef.current;
-      const canvas = canvasRef.current;
-      const overlay = overlayRef.current;
-      if (!renderer || !scene || !camera || !canvas || !overlay) return;
+      if (!renderer || !scene || !camera) return;
 
       const cache = layoutRef.current;
       const discs = discsRef.current;
-
-      // Map overlay-local pose coordinates into the sticky (viewport-tall)
-      // canvas: one rect read each for overlay + canvas, no interleaved writes.
-      const oRect = overlay.getBoundingClientRect();
-      const cRect = canvas.getBoundingClientRect();
-      const offX = oRect.left - cRect.left;
-      const offY = oRect.top - cRect.top;
-      const cH = canvasSizeRef.current.h;
-
       const smoothing = rest ? 1 : 0.16;
 
       if (!cache.valid) {
-        for (let i = 0; i < discs.length; i++) {
-          const d = discs[i];
+        for (const d of discs) {
           d.opacity += (0 - d.opacity) * smoothing;
           d.material.uniforms.uOpacity.value = d.opacity;
           d.mesh.visible = d.opacity > 0.001;
@@ -194,24 +198,21 @@ function CircleFieldThreeCanvas({
         return;
       }
 
-      const svg = svgRef.current;
-      const pathTravelVal = pathTravel.get();
-      const pathEndpoints =
-        pathTravelVal > 0 && svg
-          ? measurePathEndpointsFromDom(
-              overlay,
-              svg,
-              isDesktopRef.current ? PATH_HORIZONTAL : PATH_VERTICAL,
-            )
-          : null;
+      const { overlayDocTop, overlayH, canvasH } = metricsRef.current;
+      const scrollY = window.scrollY;
+      const overlayTopVp = overlayDocTop - scrollY;
+      // Sticky (top:0) canvas offset within the overlay, closed-form: no layout
+      // reads. offX is 0 because the canvas is left:0 / full width of overlay.
+      const clampMax = Math.max(0, overlayH - canvasH);
+      const offY = -Math.min(Math.max(-overlayTopVp, 0), clampMax);
 
       const poses = placeCircles({
         circles,
         cache,
         travel: travel.get(),
-        pathTravel: pathTravelVal,
+        pathTravel: pathTravel.get(),
         marginPx: marginPx.get(),
-        scrollY: window.scrollY,
+        scrollY,
         scrollX: window.scrollX,
         viewportW: viewportRef.current.w,
         viewportH: viewportRef.current.h,
@@ -221,7 +222,6 @@ function CircleFieldThreeCanvas({
         maxVisible: CIRCLE_LOGOS.length,
         mobileHeroSlots: MOBILE_HERO_SLOTS,
         boxCount: BOX_COUNT,
-        pathEndpoints: pathEndpoints ?? undefined,
       });
 
       const reveal = !revealedRef.current;
@@ -232,9 +232,7 @@ function CircleFieldThreeCanvas({
         const pose = poses[i];
         const target = pose.hidden ? 0 : 1;
 
-        if (reveal && !pose.hidden) {
-          d.opacity = rest ? 1 : 0;
-        }
+        if (reveal && !pose.hidden) d.opacity = rest ? 1 : 0;
         d.opacity += (target - d.opacity) * smoothing;
         d.material.uniforms.uOpacity.value = d.opacity;
 
@@ -244,19 +242,17 @@ function CircleFieldThreeCanvas({
         }
         d.mesh.visible = true;
 
-        const px = pose.x + offX;
-        const py = pose.y + offY;
-        d.mesh.position.x = px;
-        d.mesh.position.y = cH - py; // ortho origin is bottom-left
+        d.mesh.position.x = pose.x;
+        d.mesh.position.y = canvasH - (pose.y + offY); // ortho origin bottom-left
 
-        // subtle floating "height": gentle shadow + rim breathing (no xy drift)
         const c = circles[i];
-        const lift = rest ? 0.35 : 0.5 + 0.5 * Math.sin(time * (c.fx + 0.0002) + c.phase);
+        const lift = rest
+          ? 0.35
+          : 0.5 + 0.5 * Math.sin(time * (c.fx + 0.0002) + c.phase);
         d.material.uniforms.uLift.value = lift;
 
         const breathe = rest ? 1 : 1 + Math.sin(time * (c.fy + 0.0002) + c.phase) * 0.015;
-        const size = CIRCLE_LOGOS[i].size * scale * breathe;
-        const quad = size * QUAD;
+        const quad = CIRCLE_LOGOS[i].size * scale * breathe * QUAD;
         d.mesh.scale.set(quad, quad, 1);
         d.mesh.renderOrder = Math.round(CIRCLE_LOGOS[i].size + lift * 4);
       }
@@ -264,7 +260,7 @@ function CircleFieldThreeCanvas({
       revealedRef.current = true;
       renderer.render(scene, camera);
     },
-    [circles, marginPx, pathTravel, svgRef, travel],
+    [circles, marginPx, pathTravel, travel],
   );
 
   const resize = useCallback(() => {
@@ -273,15 +269,13 @@ function CircleFieldThreeCanvas({
     const canvas = canvasRef.current;
     if (!renderer || !camera || !canvas) return;
 
-    const w = Math.max(1, canvas.clientWidth);
-    const h = Math.max(1, canvas.clientHeight);
-    canvasSizeRef.current = { w, h };
+    updateMetrics();
+    const { canvasW: w, canvasH: h } = metricsRef.current;
     viewportRef.current = { w: window.innerWidth, h: window.innerHeight };
 
-    const dpr = Math.min(
-      window.devicePixelRatio || 1,
-      isDesktopRef.current ? 2 : 1.5,
-    );
+    // Mobile knobs: cap DPR harder on narrow viewports to keep fill-rate low.
+    const narrow = window.innerWidth < 768;
+    const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.25 : 2);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
 
@@ -290,54 +284,105 @@ function CircleFieldThreeCanvas({
     camera.top = h;
     camera.bottom = 0;
     camera.updateProjectionMatrix();
+  }, [updateMetrics]);
+
+  // --- rAF controller: only runs while visible + tab foregrounded; reduced
+  // motion never spins a continuous loop (renders on demand instead). ---
+  // applyPoses changes identity with its deps; the loop reads it via a ref so
+  // the running rAF chain never needs to be torn down / recreated.
+  const applyPosesRef = useRef(applyPoses);
+  useEffect(() => {
+    applyPosesRef.current = applyPoses;
+  }, [applyPoses]);
+
+  const stopLoop = useCallback(() => {
+    runningRef.current = false;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = 0;
   }, []);
+
+  const startLoop = useCallback(() => {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    const tick = (time: number) => {
+      if (!runningRef.current) return;
+      frameTimeRef.current = time;
+      applyPosesRef.current(time, false);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const renderStatic = useCallback((rest: boolean) => {
+    if (staticRafRef.current) return;
+    staticRafRef.current = requestAnimationFrame((time) => {
+      staticRafRef.current = 0;
+      frameTimeRef.current = time;
+      applyPosesRef.current(time, rest);
+    });
+  }, []);
+
+  const syncActive = useCallback(() => {
+    const active =
+      visibleRef.current &&
+      (typeof document === "undefined" || document.visibilityState !== "hidden");
+
+    if (reducedRef.current) {
+      stopLoop();
+      if (active) renderStatic(true);
+      return;
+    }
+    if (active) startLoop();
+    else stopLoop();
+  }, [renderStatic, startLoop, stopLoop]);
 
   // Scene setup / teardown.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const renderer = new THREE.WebGLRenderer({
+    const narrow = window.innerWidth < 768;
+    const renderer = new WebGLRenderer({
       canvas,
       alpha: true,
-      antialias: true,
+      antialias: !narrow, // shader already AAs the disc edge; skip MSAA on mobile
       premultipliedAlpha: false,
-      powerPreference: "high-performance",
+      powerPreference: narrow ? "low-power" : "high-performance",
     });
     renderer.setClearColor(0x000000, 0);
     if ("outputColorSpace" in renderer) {
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.outputColorSpace = SRGBColorSpace;
     }
     rendererRef.current = renderer;
 
-    const scene = new THREE.Scene();
+    const scene = new Scene();
     sceneRef.current = scene;
 
-    const camera = new THREE.OrthographicCamera(0, 1, 1, 0, -1000, 1000);
+    const camera = new OrthographicCamera(0, 1, 1, 0, -1000, 1000);
     camera.position.z = 10;
     cameraRef.current = camera;
 
-    const geometry = new THREE.PlaneGeometry(1, 1);
-    const loader = new THREE.TextureLoader();
+    const geometry = new PlaneGeometry(1, 1);
+    const loader = new TextureLoader();
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
     const discs: Disc[] = CIRCLE_LOGOS.map((logo) => {
       const texture = loader.load(`/logos/${logo.file}`, () => {
         // Draw as textures arrive so the field doesn't pop in blank.
-        if (visibleRef.current) applyPoses(frameTimeRef.current, Boolean(reduced));
+        renderStatic(reducedRef.current);
       });
-      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.colorSpace = SRGBColorSpace;
       texture.anisotropy = maxAniso;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
-      texture.magFilter = THREE.LinearFilter;
-      texture.wrapS = THREE.ClampToEdgeWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.minFilter = LinearMipmapLinearFilter;
+      texture.magFilter = LinearFilter;
+      texture.wrapS = ClampToEdgeWrapping;
+      texture.wrapT = ClampToEdgeWrapping;
       texture.generateMipmaps = true;
 
       const material = createDiscMaterial(texture);
       material.uniforms.uDiscFrac.value = 1 / QUAD;
 
-      const mesh = new THREE.Mesh(geometry, material);
+      const mesh = new Mesh(geometry, material);
       mesh.visible = false;
       mesh.frustumCulled = false;
       scene.add(mesh);
@@ -349,9 +394,12 @@ function CircleFieldThreeCanvas({
     resize();
     remeasure();
     revealedRef.current = false;
-    applyPoses(0, Boolean(reduced));
+    applyPoses(0, reducedRef.current);
 
     return () => {
+      stopLoop();
+      if (staticRafRef.current) cancelAnimationFrame(staticRafRef.current);
+      staticRafRef.current = 0;
       for (const d of discs) {
         scene.remove(d.mesh);
         d.material.dispose();
@@ -367,20 +415,21 @@ function CircleFieldThreeCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Resize + remeasure on viewport changes and desktop/mobile switches.
+  // Resize + remeasure on viewport / breakpoint changes.
   useEffect(() => {
     resize();
     remeasure();
-    applyPoses(frameTimeRef.current, Boolean(reduced));
+    syncActive();
+    if (!runningRef.current) renderStatic(reducedRef.current);
 
     const onResize = () => {
       resize();
       remeasure();
-      applyPoses(frameTimeRef.current, Boolean(reduced));
+      if (!runningRef.current) renderStatic(reducedRef.current);
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [applyPoses, reduced, remeasure, resize, isDesktop, pathConfig]);
+  }, [remeasure, renderStatic, resize, syncActive, isDesktop, pathConfig, reduced]);
 
   // Pick up the SVG's late layout (path section) without churning on the box
   // margin animation.
@@ -389,51 +438,62 @@ function CircleFieldThreeCanvas({
     if (!svg) return;
     const ro = new ResizeObserver(() => {
       remeasure();
-      if (visibleRef.current) applyPoses(frameTimeRef.current, Boolean(reduced));
+      if (!runningRef.current) renderStatic(reducedRef.current);
     });
     ro.observe(svg);
     return () => ro.disconnect();
-  }, [applyPoses, reduced, remeasure, svgRef, isDesktop]);
+  }, [remeasure, renderStatic, svgRef, isDesktop]);
 
-  // Continuous drift + scrubbed travel (skipped for reduced motion).
-  useAnimationFrame((time) => {
-    frameTimeRef.current = time;
-    if (reduced) return;
-    if (!visibleRef.current) return;
-    applyPoses(time, false);
+  useMotionValueEvent(travel, "change", (value) => {
+    const landed = value >= 0.98;
+    if (landed !== landedRef.current) {
+      landedRef.current = landed;
+      animate(logosLandedProgress, landed ? 1 : 0, {
+        duration: landed ? 0.6 : 0.25,
+        ease: "easeOut",
+      });
+    }
+    // Reduced motion has no continuous loop: nudge a static frame so the box
+    // circles still track the scrubbed box on wake.
+    if (reducedRef.current && visibleRef.current) renderStatic(true);
   });
 
-  // Reduced motion: keep discs glued to their document positions as the sticky
-  // canvas scrolls, but never drift or scrub.
+  // Wake the loop / static render on scroll even when metrics say we're pinned;
+  // the closed-form offset needs a fresh scrollY, and reduced motion relies on
+  // this to stay glued to the page.
   useEffect(() => {
-    if (!reduced) return;
-    let raf = 0;
-    const schedule = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        applyPoses(0, true);
-      });
+    const onScroll = () => {
+      if (reducedRef.current) {
+        if (visibleRef.current) renderStatic(true);
+      } else if (visibleRef.current && !runningRef.current) {
+        syncActive();
+      }
     };
-    window.addEventListener("scroll", schedule, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", schedule);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [applyPoses, reduced]);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [renderStatic, syncActive]);
 
+  // Visibility (offscreen) + tab-hidden gating.
   useEffect(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
     const io = new IntersectionObserver(
       ([entry]) => {
         visibleRef.current = entry.isIntersecting;
+        syncActive();
       },
-      { threshold: 0 },
+      { threshold: 0, rootMargin: "10% 0px" },
     );
     io.observe(overlay);
-    return () => io.disconnect();
-  }, []);
+
+    const onVisibility = () => syncActive();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      io.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [syncActive]);
 
   return (
     <div ref={overlayRef} aria-hidden className="pointer-events-none absolute inset-0 z-20">

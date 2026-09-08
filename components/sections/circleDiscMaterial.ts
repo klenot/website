@@ -1,4 +1,9 @@
-import * as THREE from "three";
+import {
+  NormalBlending,
+  ShaderMaterial,
+  type Texture,
+  Vector3,
+} from "three";
 
 /**
  * Soft-lit glass "coin" shader for a single logo disc.
@@ -86,20 +91,20 @@ const fragmentShader = /* glsl */ `
   }
 `;
 
-export function createDiscMaterial(map: THREE.Texture): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
+export function createDiscMaterial(map: Texture): ShaderMaterial {
+  return new ShaderMaterial({
     vertexShader,
     fragmentShader,
     transparent: true,
     depthTest: false,
     depthWrite: false,
-    blending: THREE.NormalBlending,
+    blending: NormalBlending,
     uniforms: {
       uMap: { value: map },
       uOpacity: { value: 0 },
       uDiscFrac: { value: 0.7 },
       uAA: { value: 0.012 },
-      uLightDir: { value: new THREE.Vector3(-0.55, -0.7, 0.45).normalize() },
+      uLightDir: { value: new Vector3(-0.55, -0.7, 0.45).normalize() },
       uShadowStrength: { value: 0.32 },
       uShadowOffset: { value: 0.06 },
       uLift: { value: 0 },

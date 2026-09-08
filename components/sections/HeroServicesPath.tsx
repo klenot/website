@@ -2,13 +2,12 @@
 
 import { useRef } from "react";
 import { useMotionValue } from "motion/react";
-import dynamic from "next/dynamic";
 import HeroServices from "./HeroServices";
 import PathAnimation from "./PathAnimation";
-
-// WebGL logo field is client-only (owns a canvas + Three.js scene). It falls
-// back to the DOM/motion renderer internally when WebGL is unavailable.
-const CircleField = dynamic(() => import("./CircleFieldThree"), { ssr: false });
+// Thin selector: WebGL detection + IO-gated dynamic import. `three` is only
+// fetched when the WebGL path is chosen and scrolled near view; no-WebGL loads
+// the DOM CircleField chunk instead.
+import CircleField from "./CircleFieldMount";
 
 export default function HeroServicesPath() {
   const servicesRef = useRef<HTMLElement>(null);
