@@ -56,22 +56,14 @@ export default function HobbiesTicker() {
   const columnA = COLLAGES.slice(0, half);
   const columnB = COLLAGES.slice(half);
 
+  // Plain blog figure treatment: 1px black/10 border, ~6px radius, no fade
+  // masks — the marquee simply clips at the frame edge.
   return (
-    <div className="relative overflow-hidden rounded-md border border-black/10 bg-black/[0.02] p-3">
-      <div className="grid h-[380px] grid-cols-2 gap-3 md:h-[460px]">
+    <div className="overflow-hidden rounded-md border border-black/10 p-2">
+      <div className="grid h-[380px] grid-cols-2 gap-2 md:h-[460px]">
         <MarqueeColumn images={columnA} dir="up" duration={40} />
         <MarqueeColumn images={columnB} dir="down" duration={46} />
       </div>
-
-      {/* Fade the scrolling tiles into the page canvas at the card edges. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-16 rounded-t-md bg-linear-to-b from-white to-transparent"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-md bg-linear-to-t from-white to-transparent"
-      />
     </div>
   );
 }

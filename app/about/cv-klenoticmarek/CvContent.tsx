@@ -274,8 +274,10 @@ function CtaLink({ label, href, download, external, icon }: Cta) {
 }
 
 function CtaGroup() {
+  // One wrapping cluster with even gaps. The mobile max-width forces a balanced
+  // 2 + 2 wrap (no lone orphan on ~390) and lifts on sm+ to a single row.
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+    <div className="mx-auto flex max-w-[320px] flex-wrap items-center justify-center gap-x-5 gap-y-3 sm:max-w-none">
       {HERO_CTAS.map((cta) => (
         <CtaLink key={cta.label} {...cta} />
       ))}
@@ -298,7 +300,7 @@ function HeroBio() {
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full text-left">
       <div className="space-y-6 font-mono text-base font-light leading-relaxed text-black/70">
         {visibleParagraphs.map((paragraph) => (
           <p key={paragraph.id}>{paragraph.body}</p>
@@ -450,28 +452,24 @@ export default function CvContent() {
             </ul>
           </Section>
 
-          {/* Certificates / Skills */}
+          {/* Certificates / Skills — kept blog-plain: a quiet mono list rather
+              than a pill component kit. */}
           <Section kicker="Add-ons and Level-ups" title="Certificates & Skills">
-            <div className="space-y-4">
+            <ul className="flex flex-col">
               {SKILL_GROUPS.map((group) => (
-                <div
+                <li
                   key={group.label}
-                  className="flex flex-wrap items-center gap-2"
+                  className="grid gap-x-4 border-t border-black/10 py-3 first:border-t-0 first:pt-0 md:grid-cols-[8rem_minmax(0,1fr)]"
                 >
-                  <span className="mr-1 w-full font-mono text-[0.6875rem] font-medium tracking-wide text-black/40 uppercase md:w-32 md:shrink-0">
+                  <span className="font-mono text-[0.6875rem] font-medium tracking-wide text-black/40 uppercase">
                     {group.label}
                   </span>
-                  {group.items.map((item) => (
-                    <span
-                      key={item}
-                      className="rounded-full border border-black/15 px-3 py-1 font-mono text-sm text-black/70"
-                    >
-                      {item}
-                    </span>
-                  ))}
-                </div>
+                  <span className="mt-1 font-mono text-base text-black md:mt-0">
+                    {group.items.join(", ")}
+                  </span>
+                </li>
               ))}
-            </div>
+            </ul>
           </Section>
 
           {/* Sidequesting */}
