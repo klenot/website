@@ -49,6 +49,15 @@ export const legacyRedirects: LegacyRedirect[] = [
     note: "Framer 404 page",
   },
 
+  // Private CV moved off the guessable /cv path to an unguessable route.
+  // Kept as a permanent redirect so any shared /cv links still resolve.
+  {
+    source: "/cv",
+    destination: "/about/cv-klenoticmarek",
+    permanent: true,
+    note: "Private CV relocated to unguessable path",
+  },
+
   ...removedBlogRedirects,
 
   /**

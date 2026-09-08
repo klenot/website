@@ -1,14 +1,4 @@
-import { Instrument_Serif } from "next/font/google";
 import localFont from "next/font/local";
-
-// Framer-style serif used for italic section kickers on the private /cv page.
-export const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument-serif",
-  display: "swap",
-  weight: "400",
-  style: ["normal", "italic"],
-  subsets: ["latin"],
-});
 
 export const ibmPlexMono = localFont({
   variable: "--font-ibm-plex-mono",

@@ -7,7 +7,13 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/_next/", "/md/", "/blog/preview/", "/cv"],
+        disallow: [
+          "/_next/",
+          "/md/",
+          "/blog/preview/",
+          "/cv",
+          "/about/cv-klenoticmarek",
+        ],
       },
     ],
     sitemap: absoluteUrl("/sitemap.xml"),

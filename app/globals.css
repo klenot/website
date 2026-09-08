@@ -333,13 +333,8 @@ body::-webkit-scrollbar,
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Private /cv page — Framer-style serif kickers + chess hobbies ticker
+   Private CV page — chess hobbies ticker
    ───────────────────────────────────────────────────────────────────────────── */
-
-.cv-kicker {
-  font-family: var(--font-instrument-serif), Georgia, "Times New Roman", serif;
-  font-style: italic;
-}
 
 /* Vertical marquee used by the Hobbies chess "Brilliant Move" ticker. The track
    holds two identical copies of the tile set, so translating by -50% loops
