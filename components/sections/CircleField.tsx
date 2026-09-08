@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import {
   animate,
@@ -28,8 +28,13 @@ import {
   type LayoutCache,
 } from "./circleLayoutCache";
 import { placeCircles, type CircleModel } from "./placeCircles";
+import type {
+  InstanceInput,
+  LogoSpec,
+  ThreeCircleField,
+} from "./threeCircleField";
 
-const CIRCLE_LOGOS: { file: string; size: number }[] = [
+const CIRCLE_LOGOS: LogoSpec[] = [
   // --- BOX (services) circles ---
   { file: "supabase.webp", size: 52 },
   { file: "gtm.webp", size: 36 },
@@ -194,6 +199,21 @@ function logoScaleForWidth(w: number) {
   return 1;
 }
 
+function detectWebGL(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const canvas = document.createElement("canvas");
+    return !!(
+      window.WebGLRenderingContext &&
+      (canvas.getContext("webgl2") || canvas.getContext("webgl"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+type Backend = "three" | "dom";
+
 export default function CircleField({
   servicesRef,
   boxRef,
@@ -208,6 +228,7 @@ export default function CircleField({
   logosLandedProgress: MotionValue<number>;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const elsRef = useRef<(HTMLSpanElement | null)[]>([]);
   const visibleRef = useRef(true);
   const viewportRef = useRef({ w: 1, h: 1 });
@@ -217,6 +238,14 @@ export default function CircleField({
   const frameTimeRef = useRef(0);
   const layoutRef = useRef<LayoutCache>(EMPTY_LAYOUT_CACHE);
   const isDesktopRef = useRef(false);
+  const sizesRef = useRef<number[]>(CIRCLE_LOGOS.map((l) => l.size));
+  const backendRef = useRef<Backend | null>(null);
+  const threeRef = useRef<ThreeCircleField | null>(null);
+  const instItemsRef = useRef<InstanceInput[]>(
+    CIRCLE_LOGOS.map(() => ({ x: 0, y: 0, size: 0, alpha: 0 })),
+  );
+
+  const [backend, setBackend] = useState<Backend | null>(null);
 
   const reduced = useReducedMotion();
   const circles = useMemo(() => makeCircles(), []);
@@ -274,10 +303,10 @@ export default function CircleField({
     });
   }, [boxRef, marginPx, pathSectionRef, svgRef]);
 
-  const applyPoses = useCallback(
+  const computePoses = useCallback(
     (time: number, rest: boolean) => {
       const cache = layoutRef.current;
-      if (!cache.valid) return;
+      if (!cache.valid) return null;
 
       const pathTravelVal = pathTravel.get();
       const overlay = overlayRef.current;
@@ -291,7 +320,7 @@ export default function CircleField({
             )
           : null;
 
-      const poses = placeCircles({
+      return placeCircles({
         circles,
         cache,
         travel: travel.get(),
@@ -309,7 +338,37 @@ export default function CircleField({
         boxCount: BOX_COUNT,
         pathEndpoints: pathEndpoints ?? undefined,
       });
+    },
+    [circles, marginPx, pathTravel, travel, svgRef],
+  );
 
+  const paint = useCallback(
+    (time: number, rest: boolean) => {
+      const poses = computePoses(time, rest);
+      if (!poses) return;
+
+      if (backendRef.current === "three") {
+        const three = threeRef.current;
+        if (!three || !three.ready) return;
+        const cache = layoutRef.current;
+        const offsetX = cache.overlayDocLeft - window.scrollX;
+        const offsetY = cache.overlayDocTop - window.scrollY;
+        const sizes = sizesRef.current;
+        const items = instItemsRef.current;
+        for (let i = 0; i < poses.length; i++) {
+          const pose = poses[i];
+          const item = items[i];
+          item.x = pose.x + offsetX;
+          item.y = pose.y + offsetY;
+          item.size = sizes[i] ?? CIRCLE_LOGOS[i].size;
+          item.alpha = pose.hidden ? 0 : 1;
+        }
+        three.setInstances(items);
+        three.render();
+        return;
+      }
+
+      // DOM fallback: write transforms directly to the spans.
       const reveal = !revealedRef.current;
       for (let i = 0; i < poses.length; i++) {
         const el = elsRef.current[i];
@@ -324,7 +383,7 @@ export default function CircleField({
       }
       revealedRef.current = true;
     },
-    [circles, marginPx, pathTravel, travel],
+    [computePoses],
   );
 
   const applyLogoSizes = useCallback(() => {
@@ -334,27 +393,121 @@ export default function CircleField({
     const scale = logoScaleForWidth(w);
     maxVisibleRef.current = CIRCLE_LOGOS.length;
     for (let i = 0; i < CIRCLE_LOGOS.length; i++) {
+      sizesRef.current[i] = Math.round(CIRCLE_LOGOS[i].size * scale);
+    }
+    if (backendRef.current !== "dom") return;
+    for (let i = 0; i < CIRCLE_LOGOS.length; i++) {
       const el = elsRef.current[i];
       if (!el) continue;
-      const s = Math.round(CIRCLE_LOGOS[i].size * scale);
-      el.style.width = `${s}px`;
-      el.style.height = `${s}px`;
+      el.style.width = `${sizesRef.current[i]}px`;
+      el.style.height = `${sizesRef.current[i]}px`;
     }
   }, []);
 
+  const syncThreeSize = useCallback(() => {
+    const three = threeRef.current;
+    const canvas = canvasRef.current;
+    if (!three || !canvas) return;
+    const w = canvas.clientWidth || window.innerWidth;
+    const h = canvas.clientHeight || window.innerHeight;
+    three.setSize(w, h, window.devicePixelRatio || 1);
+  }, []);
+
+  const updateCanvasDisplay = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.style.display =
+      backendRef.current === "three" && visibleRef.current ? "block" : "none";
+  }, []);
+
+  // Decide the render backend once mounted: Three.js when WebGL is available,
+  // otherwise the DOM span fallback. Three is dynamically imported so the
+  // library is code-split out of the initial bundle and never runs on the server.
   useEffect(() => {
+    let cancelled = false;
+    let instance: ThreeCircleField | null = null;
+
+    if (!detectWebGL() || !canvasRef.current) {
+      backendRef.current = "dom";
+      setBackend("dom");
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    (async () => {
+      try {
+        const mod = await import("./threeCircleField");
+        if (cancelled) return;
+        instance = new mod.ThreeCircleField(canvas, CIRCLE_LOGOS);
+        const ok = await instance.init();
+        if (cancelled || !ok) {
+          instance?.dispose();
+          instance = null;
+          if (!cancelled) {
+            backendRef.current = "dom";
+            setBackend("dom");
+          }
+          return;
+        }
+        threeRef.current = instance;
+        backendRef.current = "three";
+        if (reduced) {
+          instance.setMasterOpacity(1);
+        } else {
+          instance.setMasterOpacity(0);
+          animate(0, 1, {
+            duration: 0.5,
+            ease: "easeOut",
+            onUpdate: (v) => threeRef.current?.setMasterOpacity(v),
+          });
+        }
+        setBackend("three");
+      } catch {
+        instance?.dispose();
+        instance = null;
+        if (!cancelled) {
+          backendRef.current = "dom";
+          setBackend("dom");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      instance?.dispose();
+      threeRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Initial layout + paint once a backend is chosen, and keep in sync on resize.
+  useEffect(() => {
+    if (backend === null) return;
     applyLogoSizes();
     remeasure();
-    applyPoses(0, Boolean(reduced));
+    syncThreeSize();
+    updateCanvasDisplay();
+    paint(frameTimeRef.current, Boolean(reduced));
 
     const onResize = () => {
       applyLogoSizes();
       remeasure();
-      applyPoses(frameTimeRef.current, Boolean(reduced));
+      syncThreeSize();
+      paint(frameTimeRef.current, Boolean(reduced));
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [applyLogoSizes, applyPoses, reduced, remeasure, isDesktop, pathConfig]);
+  }, [
+    applyLogoSizes,
+    backend,
+    isDesktop,
+    paint,
+    pathConfig,
+    reduced,
+    remeasure,
+    syncThreeSize,
+    updateCanvasDisplay,
+  ]);
 
   // Cold-path: pick up SVG size once it lays out (not on box margin animation).
   useEffect(() => {
@@ -364,20 +517,39 @@ export default function CircleField({
     const ro = new ResizeObserver(() => {
       remeasure();
       if (!visibleRef.current) return;
-      applyPoses(frameTimeRef.current, Boolean(reduced));
+      paint(frameTimeRef.current, Boolean(reduced));
     });
     ro.observe(svg);
     return () => ro.disconnect();
-  }, [applyPoses, reduced, remeasure, svgRef, isDesktop]);
+  }, [paint, reduced, remeasure, svgRef, isDesktop]);
 
   // Single rAF path for all pose updates (scroll + idle drift). Avoids
-  // duplicate applyPoses calls from scroll listeners during smooth nav scroll.
+  // duplicate paint calls from scroll listeners during smooth nav scroll.
   useAnimationFrame((time) => {
     frameTimeRef.current = time;
     if (reduced) return;
     if (!visibleRef.current) return;
-    applyPoses(time, false);
+    paint(time, false);
   });
+
+  // Reduced motion: no rAF drift, but the fixed Three canvas must still repaint
+  // on scroll so resting discs stay glued to their document positions.
+  useEffect(() => {
+    if (backend !== "three" || !reduced) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (visibleRef.current) paint(0, true);
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [backend, paint, reduced]);
 
   useEffect(() => {
     const overlay = overlayRef.current;
@@ -385,40 +557,52 @@ export default function CircleField({
     const io = new IntersectionObserver(
       ([entry]) => {
         visibleRef.current = entry.isIntersecting;
+        updateCanvasDisplay();
       },
       { threshold: 0 },
     );
     io.observe(overlay);
     return () => io.disconnect();
-  }, []);
+  }, [updateCanvasDisplay]);
 
   return (
-    <div
-      ref={overlayRef}
-      aria-hidden
-      className="pointer-events-none absolute inset-0 z-20 overflow-hidden"
-    >
-      {circles.map((_, i) => (
-        <span
-          key={i}
-          ref={(el) => {
-            elsRef.current[i] = el;
-          }}
-          className="absolute left-0 top-0 overflow-hidden rounded-full will-change-transform"
-          style={{
-            opacity: 0,
-            width: CIRCLE_LOGOS[i].size,
-            height: CIRCLE_LOGOS[i].size,
-          }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={`/logos/${CIRCLE_LOGOS[i].file}`}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        </span>
-      ))}
-    </div>
+    <>
+      {backend !== "dom" && (
+        <canvas
+          ref={canvasRef}
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-20"
+          style={{ display: "none" }}
+        />
+      )}
+      <div
+        ref={overlayRef}
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-20 overflow-hidden"
+      >
+        {backend === "dom" &&
+          circles.map((_, i) => (
+            <span
+              key={i}
+              ref={(el) => {
+                elsRef.current[i] = el;
+              }}
+              className="absolute left-0 top-0 overflow-hidden rounded-full will-change-transform"
+              style={{
+                opacity: 0,
+                width: CIRCLE_LOGOS[i].size,
+                height: CIRCLE_LOGOS[i].size,
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/logos/${CIRCLE_LOGOS[i].file}`}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            </span>
+          ))}
+      </div>
+    </>
   );
 }
