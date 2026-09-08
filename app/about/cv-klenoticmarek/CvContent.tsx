@@ -104,7 +104,7 @@ function CompanyLink({ href, children }: { href: string; children: ReactNode }) 
       target="_blank"
       rel="noopener noreferrer"
       onClick={() => trackEvent("cv_bio_company_clicked", { href })}
-      className="font-medium text-white underline decoration-white/30 underline-offset-4 transition-colors hover:text-white hover:decoration-[#FF8008]"
+      className="font-medium text-white underline decoration-white/50 underline-offset-4 transition-colors hover:text-white hover:decoration-[#FF8008]"
     >
       {children}
     </a>
@@ -522,7 +522,7 @@ export default function CvContent() {
                 href="https://www.chess.com/member/ZasUtopilDamu"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-white underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-[#FF8008]"
+                className="font-medium text-white underline decoration-white/50 underline-offset-4 transition-colors hover:decoration-[#FF8008]"
               >
                 @ZasUtopilDamu
               </a>{" "}
