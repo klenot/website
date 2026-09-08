@@ -53,6 +53,7 @@ export function placeCircles({
   mobileHeroSlots,
   boxCount,
   pathEndpoints,
+  driftScale = 1,
 }: {
   circles: readonly CircleModel[];
   cache: LayoutCache;
@@ -69,6 +70,8 @@ export function placeCircles({
   maxVisible: number;
   mobileHeroSlots: readonly { x: number; y: number }[];
   boxCount: number;
+  /** 0 = drift fully faded (idle-stopped), 1 = full drift. Renderer-driven. */
+  driftScale?: number;
   pathEndpoints?: {
     start: { x: number; y: number } | null;
     end: { x: number; y: number } | null;
@@ -153,12 +156,9 @@ export function placeCircles({
 
     const driftDampen = isPathCircle ? 0 : 1;
     const fallDrift = p > 0 && p < 1 ? Math.max(0, 1 - p * 2.5) : 1;
-    let dx = rest
-      ? 0
-      : c.dax * vmin * Math.sin(time * c.fx + c.phase) * driftDampen * fallDrift;
-    let dy = rest
-      ? 0
-      : c.day * vmin * Math.cos(time * c.fy + c.phase) * driftDampen * fallDrift;
+    const ds = driftDampen * fallDrift * driftScale;
+    let dx = rest ? 0 : c.dax * vmin * Math.sin(time * c.fx + c.phase) * ds;
+    let dy = rest ? 0 : c.day * vmin * Math.cos(time * c.fy + c.phase) * ds;
 
     // Padded clear zone around the hero headline: push hero coins out of an
     // elliptical hole around "Hi, my name is Marek" so they never sit on type.

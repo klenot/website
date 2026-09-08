@@ -7,13 +7,12 @@ import {
   DirectionalLight,
   DoubleSide,
   Group,
+  type Light,
   Mesh,
   MeshBasicMaterial,
-  MeshPhysicalMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
   SRGBColorSpace,
-  type Object3D,
   type Texture,
 } from "three";
 
@@ -28,11 +27,39 @@ export type CoinGeometry = {
 
 export function createCoinGeometry(): CoinGeometry {
   // Unit-radius coin. Rotate so the circular caps face the camera (+Z).
-  const blank = new CylinderGeometry(1, 1, THICKNESS, 56, 1, false);
+  // Low segment counts — the coins are small on screen, so 20 reads round.
+  const blank = new CylinderGeometry(1, 1, THICKNESS, 20, 1, false);
   blank.rotateX(Math.PI / 2);
-  const decal = new CircleGeometry(0.9, 48);
+  const decal = new CircleGeometry(0.9, 22);
   const shadow = new PlaneGeometry(1, 1);
   return { blank, decal, shadow };
+}
+
+/**
+ * Rim + cap materials are identical for every coin, so build them ONCE and
+ * share across all coins (only the logo decal is per-coin). Cheap lit
+ * `MeshStandardMaterial` — no `MeshPhysicalMaterial`/clearcoat.
+ */
+export type CoinMaterials = {
+  rimMat: MeshStandardMaterial;
+  capMat: MeshStandardMaterial;
+};
+
+export function createCoinMaterials(): CoinMaterials {
+  // Bright coin edge — low metalness so it reads without an env map; the key
+  // light gives it a moving specular sheen on tilt, selling the thickness.
+  const rimMat = new MeshStandardMaterial({
+    color: new Color(0.86, 0.88, 0.92),
+    metalness: 0.25,
+    roughness: 0.34,
+  });
+  // Pearl coin body under the logo (Standard, not Physical).
+  const capMat = new MeshStandardMaterial({
+    color: new Color(0.96, 0.96, 0.98),
+    metalness: 0.0,
+    roughness: 0.4,
+  });
+  return { rimMat, capMat };
 }
 
 /** Soft radial falloff used for the grounded contact shadow. */
@@ -63,31 +90,16 @@ export type Coin = {
   group: Group;
   blank: Mesh;
   logo: Mesh;
-  rimMat: MeshStandardMaterial;
-  capMat: MeshPhysicalMaterial;
   logoMat: MeshBasicMaterial;
 };
 
-export function createCoin(geo: CoinGeometry, logoTexture: Texture): Coin {
-  // Bright coin edge — kept low-metalness so it reads (real metals need an env
-  // map or they render black); the key light gives it a moving specular sheen
-  // on tilt, selling the thickness.
-  const rimMat = new MeshStandardMaterial({
-    color: new Color(0.86, 0.88, 0.92),
-    metalness: 0.25,
-    roughness: 0.34,
-  });
-  // Pearl/glass coin body under the logo.
-  const capMat = new MeshPhysicalMaterial({
-    color: new Color(0.96, 0.96, 0.98),
-    metalness: 0.1,
-    roughness: 0.35,
-    clearcoat: 1,
-    clearcoatRoughness: 0.18,
-  });
-
-  // Cylinder groups after rotateX: [side, +Z cap, -Z cap].
-  const blank = new Mesh(geo.blank, [rimMat, capMat, capMat]);
+export function createCoin(
+  geo: CoinGeometry,
+  mats: CoinMaterials,
+  logoTexture: Texture,
+): Coin {
+  // Cylinder groups after rotateX: [side, +Z cap, -Z cap] — shared materials.
+  const blank = new Mesh(geo.blank, [mats.rimMat, mats.capMat, mats.capMat]);
 
   const logoMat = new MeshBasicMaterial({
     map: logoTexture,
@@ -102,7 +114,7 @@ export function createCoin(geo: CoinGeometry, logoTexture: Texture): Coin {
   const group = new Group();
   group.add(blank);
   group.add(logo);
-  return { group, blank, logo, rimMat, capMat, logoMat };
+  return { group, blank, logo, logoMat };
 }
 
 export function createShadow(geo: CoinGeometry, texture: Texture): Mesh {
@@ -172,7 +184,7 @@ export function createLip(): Mesh {
   return mesh;
 }
 
-export function createLights(): Object3D[] {
+export function createLights(): Light[] {
   const ambient = new AmbientLight(0xffffff, 0.72);
 
   const key = new DirectionalLight(0xffffff, 1.55);

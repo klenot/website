@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { RefObject } from "react";
 import {
+  type Light,
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
@@ -46,6 +47,7 @@ import {
 import {
   createCoin,
   createCoinGeometry,
+  createCoinMaterials,
   createLights,
   createLip,
   createMouthOccluder,
@@ -53,6 +55,7 @@ import {
   createShadowTexture,
   type Coin,
   type CoinGeometry,
+  type CoinMaterials,
 } from "./coinFactory";
 
 const FOV = 30;
@@ -61,6 +64,11 @@ const Z_NEAR = 120;
 const Z_FAR = -55;
 const HERO_LIFT = 90; // how far in front coins float while in the hero
 const MOUTH_DIP = -185; // extra z during the crossing → slip behind the lip
+
+// Idle stop: after this long with no scroll/resize/IO wake, drift eases to 0
+// over the decay window and the rAF loop halts until the next wake.
+const IDLE_HOLD_MS = 220;
+const IDLE_DECAY_MS = 900;
 
 const smoother = (t: number) => {
   const c = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -106,6 +114,8 @@ export default function CircleFieldThree({
   const occluderRef = useRef<Mesh | null>(null);
   const lipRef = useRef<Mesh | null>(null);
   const geoRef = useRef<CoinGeometry | null>(null);
+  const matsRef = useRef<CoinMaterials | null>(null);
+  const lightsRef = useRef<Light[]>([]);
 
   const metricsRef = useRef<Metrics>({
     overlayDocTop: 0,
@@ -117,15 +127,20 @@ export default function CircleFieldThree({
   const visibleRef = useRef(false);
   const viewportRef = useRef({ w: 1, h: 1 });
   const landedRef = useRef(false);
-  const lastScrollRef = useRef(0);
   const layoutRef = useRef<LayoutCache>(EMPTY_LAYOUT_CACHE);
   const isDesktopRef = useRef(false);
+  const mobileRef = useRef(false);
   const maxVisibleRef = useRef(CIRCLE_LOGOS.length);
 
   const runningRef = useRef(false);
   const rafRef = useRef(0);
   const staticRafRef = useRef(0);
   const reducedRef = useRef(false);
+  // Idle-activity: 1 right after a wake, decays to 0 when settled (then the
+  // loop stops). Drives drift amplitude so the stop is smooth, not a snap.
+  const activityRef = useRef(1);
+  const lastWakeRef = useRef(0);
+  const lastFrameRef = useRef(0);
 
   const reduced = useReducedMotion();
   const circles = useMemo(() => makeCircles(), []);
@@ -224,14 +239,12 @@ export default function CircleFieldThree({
       const ptv = rest ? 0 : pathTravel.get();
       const frameTime = rest ? 0 : time;
       const mgn = marginPx.get();
+      const mobile = mobileRef.current;
 
-      // Drift/idle gain: full at the scrub ends, killed mid-handoff and while
-      // scrolling fast, so idle motion never fights the scrub / turnaround.
-      const nearEnd = Math.min(tv, 1 - tv);
-      const scrollVel = Math.abs(scrollY - lastScrollRef.current);
-      lastScrollRef.current = scrollY;
-      const velGain = 1 - Math.min(scrollVel / 55, 1) * 0.85;
-      const driftGain = rest ? 0 : (1 - smoother((0.32 - nearEnd) / 0.32)) * velGain;
+      // Idle activity drives all drift; on mobile idle micro-motion is disabled
+      // entirely (dock/tilt for the handoff still play).
+      const activity = rest ? 0 : activityRef.current;
+      const idle = mobile ? 0 : activity;
 
       const poses = placeCircles({
         circles,
@@ -249,6 +262,7 @@ export default function CircleFieldThree({
         maxVisible: maxVisibleRef.current,
         mobileHeroSlots: MOBILE_HERO_SLOTS,
         boxCount: BOX_COUNT,
+        driftScale: idle,
       });
 
       const scale = logoScaleForWidth(viewportRef.current.w);
@@ -286,10 +300,10 @@ export default function CircleFieldThree({
           const zHero = HERO_LIFT + nearF * 55;
           zc = zHero + (zBox - zHero) * dockEase + MOUTH_DIP * dip;
         }
-        zc += Math.sin(frameTime * 0.0004 + c.phase) * 7 * nearF * driftGain; // z bob
+        zc += Math.sin(frameTime * 0.0004 + c.phase) * 7 * nearF * idle; // z bob
 
         // --- screen anchor (overlay-local px -> world, y-up) + depth parallax ---
-        const parAmp = (0.4 + nearF) * 4.5 * driftGain;
+        const parAmp = (0.4 + nearF) * 4.5 * idle;
         const sx =
           pose.x + Math.sin(frameTime * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
         const syTop =
@@ -317,13 +331,13 @@ export default function CircleFieldThree({
         coin.group.rotation.x =
           (c.tiltX ?? 0) +
           tipIn +
-          Math.sin(frameTime * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * driftGain;
+          Math.sin(frameTime * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * idle;
         coin.group.rotation.y =
           (c.tiltY ?? 0) +
           Math.sin(frameTime * 0.00052 + (c.spinPhase ?? 0) * 1.3) *
             0.09 *
             (0.4 + nearF) *
-            driftGain;
+            idle;
 
         // --- grounded soft contact shadow (reads over the hero) ---
         const shMat = shadow.material as { opacity: number };
@@ -366,9 +380,10 @@ export default function CircleFieldThree({
     updateMetrics();
     const { canvasW: w, canvasH: h } = metricsRef.current;
     viewportRef.current = { w: window.innerWidth, h: window.innerHeight };
-    maxVisibleRef.current = window.innerWidth < 768 ? 8 : CIRCLE_LOGOS.length;
-
     const narrow = window.innerWidth < 768;
+    mobileRef.current = narrow;
+    maxVisibleRef.current = narrow ? 6 : CIRCLE_LOGOS.length;
+
     const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.25 : 2);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
@@ -399,13 +414,41 @@ export default function CircleFieldThree({
   const startLoop = useCallback(() => {
     if (runningRef.current) return;
     runningRef.current = true;
+    lastFrameRef.current = 0;
     const tick = (time: number) => {
       if (!runningRef.current) return;
+
+      // Ease idle activity down once the settle hold elapses; a wake resets it.
+      const dt = lastFrameRef.current ? time - lastFrameRef.current : 16;
+      lastFrameRef.current = time;
+      if (!reducedRef.current && time - lastWakeRef.current > IDLE_HOLD_MS) {
+        activityRef.current = Math.max(0, activityRef.current - dt / IDLE_DECAY_MS);
+      }
+
       applyPosesRef.current(time, false);
+
+      // True idle stop: once drift has fully faded, render nothing more until
+      // the next scroll / resize / IO wake.
+      if (activityRef.current <= 0.001) {
+        stopLoop();
+        return;
+      }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
-  }, []);
+  }, [stopLoop]);
+
+  // Reset idle activity and (re)start the loop on any interaction.
+  const wake = useCallback(() => {
+    if (reducedRef.current) return;
+    activityRef.current = 1;
+    lastWakeRef.current =
+      typeof performance !== "undefined" ? performance.now() : Date.now();
+    const active =
+      visibleRef.current &&
+      (typeof document === "undefined" || document.visibilityState !== "hidden");
+    if (active) startLoop();
+  }, [startLoop]);
 
   const renderStatic = useCallback((rest: boolean) => {
     if (staticRafRef.current) return;
@@ -425,9 +468,9 @@ export default function CircleFieldThree({
       if (active) renderStatic(true);
       return;
     }
-    if (active) startLoop();
+    if (active) wake();
     else stopLoop();
-  }, [renderStatic, startLoop, stopLoop]);
+  }, [renderStatic, stopLoop, wake]);
 
   // Scene setup / teardown.
   useEffect(() => {
@@ -448,13 +491,17 @@ export default function CircleFieldThree({
 
     const scene = new Scene();
     sceneRef.current = scene;
-    for (const light of createLights()) scene.add(light);
+    const lights = createLights();
+    for (const light of lights) scene.add(light);
+    lightsRef.current = lights;
 
     const camera = new PerspectiveCamera(FOV, 1, 1, 5000);
     cameraRef.current = camera;
 
     const geo = createCoinGeometry();
     geoRef.current = geo;
+    const mats = createCoinMaterials();
+    matsRef.current = mats;
     const shadowTex = createShadowTexture();
     const loader = new TextureLoader();
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
@@ -482,7 +529,7 @@ export default function CircleFieldThree({
       scene.add(shadow);
       shadows.push(shadow);
 
-      const coin = createCoin(geo, texture);
+      const coin = createCoin(geo, mats, texture);
       scene.add(coin.group);
       coins.push(coin);
     });
@@ -499,8 +546,6 @@ export default function CircleFieldThree({
       staticRafRef.current = 0;
       for (const coin of coins) {
         scene.remove(coin.group);
-        coin.rimMat.dispose();
-        coin.capMat.dispose();
         coin.logoMat.dispose();
         (coin.logoMat.map as Texture | null)?.dispose();
       }
@@ -508,6 +553,13 @@ export default function CircleFieldThree({
         scene.remove(shadow);
         (shadow.material as { dispose: () => void }).dispose();
       }
+      for (const light of lights) {
+        scene.remove(light);
+        light.dispose();
+      }
+      lightsRef.current = [];
+      mats.rimMat.dispose();
+      mats.capMat.dispose();
       shadowTex.dispose();
       geo.blank.dispose();
       geo.decal.dispose();
@@ -536,11 +588,12 @@ export default function CircleFieldThree({
     const onResize = () => {
       resize();
       remeasure();
-      if (!runningRef.current) renderStatic(reducedRef.current);
+      if (reducedRef.current) renderStatic(true);
+      else wake();
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [remeasure, renderStatic, resize, syncActive, isDesktop, pathConfig, reduced]);
+  }, [remeasure, renderStatic, resize, syncActive, wake, isDesktop, pathConfig, reduced]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -562,20 +615,24 @@ export default function CircleFieldThree({
         ease: "easeOut",
       });
     }
-    if (reducedRef.current && visibleRef.current) renderStatic(true);
+    if (reducedRef.current) {
+      if (visibleRef.current) renderStatic(true);
+    } else if (visibleRef.current) {
+      wake();
+    }
   });
 
   useEffect(() => {
     const onScroll = () => {
       if (reducedRef.current) {
         if (visibleRef.current) renderStatic(true);
-      } else if (visibleRef.current && !runningRef.current) {
-        syncActive();
+      } else if (visibleRef.current) {
+        wake();
       }
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [renderStatic, syncActive]);
+  }, [renderStatic, wake]);
 
   useEffect(() => {
     const overlay = overlayRef.current;
