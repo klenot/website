@@ -1,6 +1,6 @@
 /**
  * Capture hero critic artifacts at desktop 1280 against a production build.
- * Scroll targets are derived from the services scroll progress (same as CircleField).
+ * Labels: true-idle (box off-screen) / mid-2-3-straddles / settled.
  */
 import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
@@ -8,6 +8,9 @@ import path from "node:path";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:3000";
 const OUT = path.join(process.cwd(), "docs/hero-artifacts");
+
+const MOUTH_SCROLL_CENTER = 0.39;
+const SETTLED_TRAVEL = 0.54;
 
 /** Mirror motion `useScroll` offset ["start end", "end start"] for #services. */
 function servicesProgress(scrollY, servicesTop, servicesH, viewH) {
@@ -38,15 +41,27 @@ async function layout(page) {
   });
 }
 
+async function assertBoxOffScreen(page) {
+  const ok = await page.evaluate(() => {
+    const box = document.getElementById("services")?.querySelector("[class*='aspect']");
+    if (!box) return false;
+    const rect = box.getBoundingClientRect();
+    return rect.top >= window.innerHeight - 2;
+  });
+  if (!ok) {
+    throw new Error("Idle artifact: services box is still visible in the viewport");
+  }
+}
+
 async function scrollTo(page, y) {
   await page.evaluate((yy) => window.scrollTo(0, yy), Math.max(0, y));
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1300);
 }
 
 async function scrollForProgress(page, m, target) {
   let lo = 0;
   let hi = m.docH;
-  for (let i = 0; i < 24; i++) {
+  for (let i = 0; i < 28; i++) {
     const mid = (lo + hi) / 2;
     const p = servicesProgress(mid, m.servicesTop, m.servicesH, m.viewH);
     if (p < target) lo = mid;
@@ -55,46 +70,64 @@ async function scrollForProgress(page, m, target) {
   return (lo + hi) / 2;
 }
 
+async function loadIdle(page) {
+  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.evaluate(() => sessionStorage.setItem("hero-capture-idle", "1"));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(2800);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(400);
+  await assertBoxOffScreen(page);
+}
+
+async function loadScrollSession(page) {
+  await page.evaluate(() => sessionStorage.removeItem("hero-capture-idle"));
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForTimeout(2800);
+}
+
 async function main() {
   await mkdir(OUT, { recursive: true });
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
-  await page.goto(BASE, { waitUntil: "networkidle" });
-  await page.waitForTimeout(3500);
+  // --- True idle (box fully below viewport, frozen headline) ---
+  await loadIdle(page);
+  await page.screenshot({
+    path: path.join(OUT, "hero-00-idle-field.png"),
+    fullPage: false,
+  });
+  console.log("✓ hero-00-idle-field.png — True idle — full hero field, box fully off-screen");
 
+  // --- Scroll-based shots (headline auto-hides once mouth opens) ---
+  await loadScrollSession(page);
   const m = await layout(page);
 
-  const shots = [
-    {
-      file: "hero-00-idle-field.png",
-      y: 0,
-      note: "Idle — box off-screen",
-    },
+  const scrollShots = [
     {
       file: "hero-01-orange.png",
-      y: await scrollForProgress(page, m, 0.22),
-      note: "Hero over orange as box appears",
+      progress: 0.2,
+      note: "Hero over orange as box begins to appear",
     },
     {
       file: "hero-02-mid-handoff.png",
-      y: await scrollForProgress(page, m, 0.38),
-      note: "Mid handoff — straddle at lip",
+      progress: MOUTH_SCROLL_CENTER,
+      note: "Mid handoff — 2–3 chips straddling the lip",
     },
     {
       file: "hero-03-settled.png",
-      y: await scrollForProgress(page, m, 0.52),
-      note: "Settled card with copy",
+      progress: SETTLED_TRAVEL,
+      note: "Settled card with padded copy",
     },
   ];
 
-  for (const shot of shots) {
-    await scrollTo(page, shot.y);
+  for (const shot of scrollShots) {
+    await scrollTo(page, await scrollForProgress(page, m, shot.progress));
     await page.screenshot({
       path: path.join(OUT, shot.file),
       fullPage: false,
     });
-    console.log(`✓ ${shot.file} — ${shot.note} (scrollY=${Math.round(shot.y)})`);
+    console.log(`✓ ${shot.file} — ${shot.note}`);
   }
 
   await browser.close();

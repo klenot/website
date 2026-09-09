@@ -180,6 +180,17 @@ export function makeCircles(): CircleModel[] {
   circles[PATH_CIRCLE_CURSOR].pathDest = "start";
   circles[PATH_CIRCLE_NEXTJS].pathDest = "end";
 
+  // Mouth pack: three hero chips cross the card lip together (design critic still).
+  const mouthPack = [
+    { index: BOX_COUNT + 2, slot: -1 }, // claude
+    { index: BOX_COUNT + 3, slot: 0 }, // react
+    { index: BOX_COUNT + 4, slot: 1 }, // gemini
+  ];
+  for (const { index, slot } of mouthPack) {
+    circles[index].mouthPack = true;
+    circles[index].mouthSlot = slot;
+  }
+
   return circles;
 }
 

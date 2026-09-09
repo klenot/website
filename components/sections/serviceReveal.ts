@@ -39,10 +39,13 @@ export function spreadMarginPx(progress: number, width: number): number {
 
 // Hero-circle travel, scrubbed across a WIDE window with smoothstep easing so
 // the hero→box handoff feels continuous (not a teleport). Logos begin gliding
-// as the box starts spreading (~0.26) and are fully gathered by ~0.55, hold
-// through the full-bleed section, then rise back out as the box narrows.
-export const CIRCLE_TRAVEL_BREAKPOINTS = [0, 0.26, 0.55, 0.8, 0.95, 1] as const;
+// as the box starts spreading (~0.28) and finish docking by ~0.58. The mouth
+// snapshot (2–3 chips straddling the lip) peaks near MOUTH_TRAVEL_CENTER.
+export const CIRCLE_TRAVEL_BREAKPOINTS = [0, 0.28, 0.58, 0.8, 0.95, 1] as const;
 export const CIRCLE_TRAVEL_VALUES = [0, 0, 1, 1, 0, 0] as const;
+
+/** Services scroll progress where the mouth snapshot is taken (artifact script). */
+export const MOUTH_SCROLL_CENTER = 0.39;
 
 // The scroll offset both Services and CircleField MUST pass to useScroll for the
 // breakpoints above to mean the same thing in both. Shared here so the whole
@@ -70,3 +73,10 @@ export function interpolateProgress(
 
   return values[last];
 }
+
+/** Circle travel (`placeCircles` `travel` arg) at MOUTH_SCROLL_CENTER — keep in sync. */
+export const MOUTH_TRAVEL_CENTER = interpolateProgress(
+  MOUTH_SCROLL_CENTER,
+  CIRCLE_TRAVEL_BREAKPOINTS,
+  CIRCLE_TRAVEL_VALUES,
+);

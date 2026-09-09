@@ -1,4 +1,5 @@
 import { clamp01, smoothstep } from "@/lib/math";
+import { MOUTH_TRAVEL_CENTER } from "./serviceReveal";
 import {
   boxBandFromMargin,
   pathEndpointLocal,
@@ -24,6 +25,10 @@ export type CircleModel = {
   tiltY?: number;
   /** Idle micro-yaw phase — 3D renderer only. */
   spinPhase?: number;
+  /** When true, travel is synced so this chip crosses the box lip at MOUTH_TRAVEL_CENTER. */
+  mouthPack?: boolean;
+  /** Small vertical stagger (-1..1) so 2–3 mouth chips half-clip simultaneously. */
+  mouthSlot?: number;
 };
 
 export type CirclePose = {
@@ -132,8 +137,28 @@ export function placeCircles({
       toPxY = bandTop + c.toY * bandH;
     }
 
-    let baseX = lerp(fromPxX, toPxX, p);
-    let baseY = lerp(fromPxY, toPxY, p);
+    let coinP = p;
+    const mouthBlend =
+      c.origin === "hero" && c.mouthPack
+        ? Math.exp(-0.5 * Math.pow((p - MOUTH_TRAVEL_CENTER) / 0.075, 2))
+        : 0;
+
+    if (c.origin === "hero" && c.mouthPack && mouthBlend > 0.02) {
+      const deltaY = toPxY - fromPxY;
+      if (Math.abs(deltaY) > 4) {
+        const lipTravel = clamp01((bandTop - fromPxY) / deltaY);
+        coinP = clamp01(p + (lipTravel - p) * Math.min(1, mouthBlend * 1.05));
+      }
+    }
+
+    let baseX = lerp(fromPxX, toPxX, coinP);
+    let baseY = lerp(fromPxY, toPxY, coinP);
+
+    // Snap mouth-pack chips to the lip together (2–3 simultaneous half-clips).
+    if (c.origin === "hero" && c.mouthPack && mouthBlend > 0.02) {
+      const lipY = bandTop + (c.mouthSlot ?? 0) * Math.max(24, bandH * 0.032);
+      baseY = lerp(baseY, lipY, Math.min(1, mouthBlend * 1.12));
+    }
 
     let isPathCircle = false;
 
@@ -163,8 +188,8 @@ export function placeCircles({
     // Padded clear zone around the hero headline: push hero coins out of an
     // elliptical hole around "Hi, my name is Marek" so they never sit on type.
     // Applies while the coin is still substantially in the hero (p small), and
-    // eases out as it docks so it doesn't fight the scrub.
-    if (c.origin === "hero" && p < 0.5) {
+    // eases out as it docks so it doesn't fight the scrub. Skip mouth-pack chips.
+    if (c.origin === "hero" && p < 0.5 && !c.mouthPack) {
       const zoneGain = 1 - smoothstep(p / 0.5);
       const textCx = heroW * 0.5;
       const textCy = isDesktop

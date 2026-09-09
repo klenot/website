@@ -315,17 +315,32 @@ export default function CircleFieldThree({
         const settle = c.origin === "box" ? 1 : 1 + (1 - dockEase) * 0.05;
         const screenR = (CIRCLE_LOGOS[i].size * scale * sizeMul * settle) / 2;
 
-        // --- MOUTH: a chip straddling the box top dips behind the rim occluder
-        //     (which lives just behind z=0, so settled/hero chips never clip) and
-        //     squashes vertically as it squeezes through the lip. Position-based,
-        //     so it only affects chips actually crossing — never stuck behind. ---
-        // Wide straddle band so 2–3 chips can half-clip at the lip mid-handoff.
-        const dCross = pose.y - boxTopLocalY; // + = below the box top
+        const inMouth =
+          c.origin === "hero" &&
+          c.mouthPack &&
+          tv > 0.16 &&
+          tv < 0.62;
+
+        // --- depth-scaled scroll differential (near leads the dock, far lags) ---
+        const lead =
+          c.origin === "box" || inMouth
+            ? 0
+            : (nearF - 0.5) * 34 * gauss(tv, 0.5, 0.2);
+
+        // --- MOUTH: a chip straddling the box top dips behind the rim occluder ---
+        const lipOverlayY =
+          inMouth && c.mouthPack
+            ? boxTopLocalY + (c.mouthSlot ?? 0) * band.bandH * 0.032
+            : pose.y;
+        const anchorY = lipOverlayY + lead;
+        const dCross = anchorY - boxTopLocalY; // + = below the box top
+        const lipBand = inMouth ? 1.35 : 1.2;
         const straddle =
           c.origin === "hero"
-            ? sstep(-screenR * 1.15, -screenR * 0.08, dCross) *
-              (1 - sstep(screenR * 0.08, screenR * 1.15, dCross))
+            ? sstep(-screenR * lipBand, -screenR * 0.04, dCross) *
+              (1 - sstep(screenR * 0.04, screenR * lipBand, dCross))
             : 0;
+        const stretch = straddle * straddle * (3 - 2 * straddle);
 
         // Depth: sort offset kept >= 0 so nothing but a straddling chip is ever
         // behind the occluder; near tier sits in front for correct overlaps.
@@ -335,19 +350,16 @@ export default function CircleFieldThree({
         const zOrbit = c.origin === "hero" ? (1 - dockEase) * (zHero - zSort) : 0;
         let zc = zSort + zOrbit;
         zc += Math.sin(frameTime * 0.0004 * (0.55 + nearF) + c.phase) * 7 * nearF * idle;
-        zc -= 130 * straddle; // dip behind the rim
-
-        // --- depth-scaled scroll differential (near leads the dock, far lags) ---
-        const lead = c.origin === "box" ? 0 : (nearF - 0.5) * 34 * gauss(tv, 0.5, 0.2);
+        zc -= 130 * stretch; // dip behind the rim
 
         // --- screen anchor (overlay-local px -> world, y-up) + idle parallax ---
         const idleT = frameTime * (0.55 + nearF * 0.9); // far drifts slower
-        const parAmp = (0.45 + nearF) * 5.2 * idle;
+        const parAmp = inMouth ? 0 : (0.45 + nearF) * 5.2 * idle;
         const worldScreenX =
           pose.x + Math.sin(idleT * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
         const worldScreenY =
           canvasH -
-          (pose.y +
+          (lipOverlayY +
             offY +
             lead +
             Math.cos(idleT * (c.fy ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp * 0.7);
@@ -360,18 +372,20 @@ export default function CircleFieldThree({
 
         coin.group.visible = apEase > 0.01;
         coin.group.position.set(worldX, worldY, zc);
-        // Squash through the lip: pinch vertically, bulge slightly wide.
+        // Stretch through the lip: vertical squash, slight width bulge, z foreshorten.
+        const stretchGain = inMouth ? 1.2 : 1;
         coin.group.scale.set(
-          Math.max(0.0001, worldR * (1 + 0.14 * straddle)),
-          Math.max(0.0001, worldR * (1 - 0.34 * straddle)),
-          Math.max(0.0001, worldR),
+          Math.max(0.0001, worldR * (1 + 0.22 * stretch * stretchGain)),
+          Math.max(0.0001, worldR * (1 - 0.52 * stretch * stretchGain)),
+          Math.max(0.0001, worldR * (1 - 0.2 * stretch * stretchGain)),
         );
 
-        // --- tilt + depth-scaled idle micro-yaw + a gentle lean while docking ---
-        const tipIn = c.origin === "box" ? 0 : gauss(tv, 0.5, 0.24) * 0.26;
+        // --- tilt + depth-scaled idle micro-yaw + lip foreshorten lean ---
+        const tipIn = c.origin === "box" || inMouth ? 0 : gauss(tv, 0.5, 0.24) * 0.26;
         coin.group.rotation.x =
           (c.tiltX ?? 0) +
           tipIn +
+          stretch * 0.55 * stretchGain +
           Math.sin(idleT * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * idle;
         coin.group.rotation.y =
           (c.tiltY ?? 0) +
@@ -722,6 +736,8 @@ export default function CircleFieldThree({
         ease: "easeOut",
       });
     }
+    // Refresh landing band during the mouth window so lip straddles stay pixel-locked.
+    if (value > 0.12 && value < 0.68) remeasure();
     if (reducedRef.current) {
       if (visibleRef.current) renderStatic(true);
     } else if (visibleRef.current) {

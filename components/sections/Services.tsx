@@ -63,10 +63,14 @@ export default function Services({
         style={{ marginLeft: marginX, marginRight: marginX, borderRadius }}
         className="relative aspect-[9/16] overflow-hidden bg-black md:aspect-video"
       >
-        {/* Soft inner top shade — inside the card only, no exterior glow line. */}
+        {/* Inner-only top volume — inset shadow, no exterior glow line at the lip. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[32%] bg-linear-to-b from-black/55 via-black/20 to-transparent"
+          className="pointer-events-none absolute inset-0 z-10 rounded-[inherit]"
+          style={{
+            boxShadow:
+              "inset 0 52px 72px -36px rgba(0,0,0,0.62), inset 0 18px 28px -14px rgba(0,0,0,0.28)",
+          }}
         />
         <motion.p
           style={{ opacity: textOpacity }}
