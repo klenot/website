@@ -1,15 +1,10 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { MotionValue } from "motion/react";
-import { motion, useScroll, useTransform } from "motion/react";
-import {
-  interpolateProgress,
-  SPREAD_BREAKPOINTS,
-  SPREAD_MARGIN_PX,
-  SPREAD_OFFSET,
-} from "./serviceReveal";
+import { motion, useMotionValue, useScroll, useTransform } from "motion/react";
+import { interpolateProgress, SPREAD_OFFSET, spreadMarginPx } from "./serviceReveal";
 
 export default function Services({
   sectionRef,
@@ -28,13 +23,25 @@ export default function Services({
     offset: SPREAD_OFFSET,
   });
 
-  const marginX = useTransform(scrollYProgress, (progress) => {
-    const px = interpolateProgress(progress, SPREAD_BREAKPOINTS, SPREAD_MARGIN_PX);
-    return `${px}px`;
-  });
+  // Live container width feeds the responsive inset so the box starts
+  // noticeably narrow and spreads to full-bleed on every screen size.
+  const widthMV = useMotionValue(0);
+  useEffect(() => {
+    const measure = () =>
+      widthMV.set(ref.current?.offsetWidth ?? window.innerWidth);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [ref, widthMV]);
+
+  const marginX = useTransform(
+    [scrollYProgress, widthMV],
+    ([progress, width]) => `${spreadMarginPx(progress as number, width as number)}px`,
+  );
 
   const borderRadius = useTransform(scrollYProgress, (progress) => {
-    const px = interpolateProgress(progress, [0.25, 0.35, 0.8, 0.9], [24, 0, 0, 24]);
+    // Stay rounded even at max spread so it always reads as the services card.
+    const px = interpolateProgress(progress, [0.25, 0.35, 0.8, 0.9], [24, 14, 14, 24]);
     return `${px}px`;
   });
 
@@ -56,9 +63,18 @@ export default function Services({
         style={{ marginLeft: marginX, marginRight: marginX, borderRadius }}
         className="relative aspect-[9/16] overflow-hidden bg-black md:aspect-video"
       >
+        {/* Inner-only top volume — inset shadow, no exterior glow line at the lip. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-10 rounded-[inherit]"
+          style={{
+            boxShadow:
+              "inset 0 52px 72px -36px rgba(0,0,0,0.62), inset 0 18px 28px -14px rgba(0,0,0,0.28)",
+          }}
+        />
         <motion.p
           style={{ opacity: textOpacity }}
-          className="absolute inset-x-0 bottom-[12px] px-6 text-center font-mono text-white"
+          className="absolute inset-x-0 bottom-6 px-6 text-center font-mono text-white md:bottom-8"
         >
           Today&apos;s digital space is made for people of many talents.
         </motion.p>

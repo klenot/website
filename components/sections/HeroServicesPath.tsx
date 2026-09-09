@@ -2,9 +2,12 @@
 
 import { useRef } from "react";
 import { useMotionValue } from "motion/react";
-import CircleField from "./CircleField";
 import HeroServices from "./HeroServices";
 import PathAnimation from "./PathAnimation";
+// Thin selector: WebGL detection + IO-gated dynamic import. `three` is only
+// fetched when the WebGL path is chosen and scrolled near view; no-WebGL loads
+// the DOM CircleField chunk instead.
+import CircleField from "./CircleFieldMount";
 
 export default function HeroServicesPath() {
   const servicesRef = useRef<HTMLElement>(null);

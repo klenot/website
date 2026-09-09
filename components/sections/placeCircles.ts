@@ -1,4 +1,5 @@
 import { clamp01, smoothstep } from "@/lib/math";
+import { MOUTH_TRAVEL_CENTER } from "./serviceReveal";
 import {
   boxBandFromMargin,
   pathEndpointLocal,
@@ -17,6 +18,17 @@ export type CircleModel = {
   fy: number;
   phase: number;
   pathDest?: "start" | "end";
+  /** 0 = nearest camera tier, 1 = farthest. Consumed only by the 3D renderer. */
+  depthTier?: number;
+  /** Static rest tilt (radians) — 3D renderer only. */
+  tiltX?: number;
+  tiltY?: number;
+  /** Idle micro-yaw phase — 3D renderer only. */
+  spinPhase?: number;
+  /** When true, travel is synced so this chip crosses the box lip at MOUTH_TRAVEL_CENTER. */
+  mouthPack?: boolean;
+  /** Small vertical stagger (-1..1) so 2–3 mouth chips half-clip simultaneously. */
+  mouthSlot?: number;
 };
 
 export type CirclePose = {
@@ -46,6 +58,7 @@ export function placeCircles({
   mobileHeroSlots,
   boxCount,
   pathEndpoints,
+  driftScale = 1,
 }: {
   circles: readonly CircleModel[];
   cache: LayoutCache;
@@ -62,6 +75,8 @@ export function placeCircles({
   maxVisible: number;
   mobileHeroSlots: readonly { x: number; y: number }[];
   boxCount: number;
+  /** 0 = drift fully faded (idle-stopped), 1 = full drift. Renderer-driven. */
+  driftScale?: number;
   pathEndpoints?: {
     start: { x: number; y: number } | null;
     end: { x: number; y: number } | null;
@@ -122,8 +137,28 @@ export function placeCircles({
       toPxY = bandTop + c.toY * bandH;
     }
 
-    let baseX = lerp(fromPxX, toPxX, p);
-    let baseY = lerp(fromPxY, toPxY, p);
+    let coinP = p;
+    const mouthBlend =
+      c.origin === "hero" && c.mouthPack
+        ? Math.exp(-0.5 * Math.pow((p - MOUTH_TRAVEL_CENTER) / 0.075, 2))
+        : 0;
+
+    if (c.origin === "hero" && c.mouthPack && mouthBlend > 0.02) {
+      const deltaY = toPxY - fromPxY;
+      if (Math.abs(deltaY) > 4) {
+        const lipTravel = clamp01((bandTop - fromPxY) / deltaY);
+        coinP = clamp01(p + (lipTravel - p) * Math.min(1, mouthBlend * 1.05));
+      }
+    }
+
+    let baseX = lerp(fromPxX, toPxX, coinP);
+    let baseY = lerp(fromPxY, toPxY, coinP);
+
+    // Snap mouth-pack chips to the lip together (2–3 simultaneous half-clips).
+    if (c.origin === "hero" && c.mouthPack && mouthBlend > 0.02) {
+      const lipY = bandTop + (c.mouthSlot ?? 0) * Math.max(24, bandH * 0.032);
+      baseY = lerp(baseY, lipY, Math.min(1, mouthBlend * 1.12));
+    }
 
     let isPathCircle = false;
 
@@ -146,20 +181,22 @@ export function placeCircles({
 
     const driftDampen = isPathCircle ? 0 : 1;
     const fallDrift = p > 0 && p < 1 ? Math.max(0, 1 - p * 2.5) : 1;
-    let dx = rest
-      ? 0
-      : c.dax * vmin * Math.sin(time * c.fx + c.phase) * driftDampen * fallDrift;
-    let dy = rest
-      ? 0
-      : c.day * vmin * Math.cos(time * c.fy + c.phase) * driftDampen * fallDrift;
+    const ds = driftDampen * fallDrift * driftScale;
+    let dx = rest ? 0 : c.dax * vmin * Math.sin(time * c.fx + c.phase) * ds;
+    let dy = rest ? 0 : c.day * vmin * Math.cos(time * c.fy + c.phase) * ds;
 
-    if (c.origin === "hero" && p === 0) {
+    // Padded clear zone around the hero headline: push hero coins out of an
+    // elliptical hole around "Hi, my name is Marek" so they never sit on type.
+    // Applies while the coin is still substantially in the hero (p small), and
+    // eases out as it docks so it doesn't fight the scrub. Skip mouth-pack chips.
+    if (c.origin === "hero" && p < 0.5 && !c.mouthPack) {
+      const zoneGain = 1 - smoothstep(p / 0.5);
       const textCx = heroW * 0.5;
       const textCy = isDesktop
-        ? heroH * 0.48
-        : heroSectionTop + heroSectionH * 0.5;
-      const zoneRx = heroW * (isDesktop ? 0.45 : 0.38);
-      const zoneRy = (isDesktop ? heroH : heroSectionH) * (isDesktop ? 0.2 : 0.16);
+        ? heroH * 0.46
+        : heroSectionTop + heroSectionH * 0.48;
+      const zoneRx = heroW * (isDesktop ? 0.42 : 0.4);
+      const zoneRy = (isDesktop ? heroH : heroSectionH) * (isDesktop ? 0.26 : 0.2);
 
       const fx = baseX + dx - textCx;
       const fy = baseY + dy - textCy;
@@ -169,7 +206,7 @@ export function placeCircles({
 
       if (d2 < 1 && d2 > 0.001) {
         const dist = Math.sqrt(d2);
-        const push = (1 - dist) * (1 - dist) * 90;
+        const push = (1 - dist) * (1 - dist) * 150 * zoneGain;
         dx += (nx / dist) * push;
         dy += (ny / dist) * push;
       }
