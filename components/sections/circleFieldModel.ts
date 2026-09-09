@@ -35,8 +35,8 @@ export const HERO_COUNT = 6;
 
 // Landed coins live in a TIGHT upper band of the box, so the empty strip above
 // the bottom-pinned copy reads as intentional negative space (not a sparse void).
-const BOX_BAND_TOP = 0.14;
-const BOX_BAND_BOTTOM = 0.46;
+const BOX_BAND_TOP = 0.17;
+const BOX_BAND_BOTTOM = 0.42;
 
 export function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -95,7 +95,7 @@ export function makeCircles(): CircleModel[] {
   // Landing slots inside the box's upper band, spaced out (Poisson-ish) but
   // packed tighter for a denser cluster.
   const slots: { x: number; y: number }[] = [];
-  const minDist = 0.16;
+  const minDist = 0.13;
   for (let i = 0; i < TOTAL; i++) {
     let best = { x: 0.5, y: 0.4 };
     let bestD = -1;

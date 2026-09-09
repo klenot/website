@@ -18,10 +18,18 @@ import {
 /** Thin chip, not a chunky coin (Marek: "chips are really chunky"). */
 const THICKNESS = 0.06;
 
+/** Face inset — more rim visible for frosted craft read (desktop lit chips). */
+const FACE_INSET = 0.84;
+
+/** Flat mobile rim tints (MeshBasic — no lighting cost). */
+export const FLAT_RIM_COLORS = [0x3a4454, 0x45474c, 0x4a4238] as const;
+
 export type CoinGeometry = {
   blank: CylinderGeometry;
   decal: CircleGeometry;
   shadow: PlaneGeometry;
+  flatRim: CircleGeometry;
+  flatFace: CircleGeometry;
 };
 
 export function createCoinGeometry(): CoinGeometry {
@@ -29,9 +37,11 @@ export function createCoinGeometry(): CoinGeometry {
   // Low segment counts — the chips are small on screen, so 18 reads round.
   const blank = new CylinderGeometry(1, 1, THICKNESS, 18, 1, false);
   blank.rotateX(Math.PI / 2);
-  const decal = new CircleGeometry(0.9, 20);
+  const decal = new CircleGeometry(FACE_INSET, 20);
   const shadow = new PlaneGeometry(1, 1);
-  return { blank, decal, shadow };
+  const flatRim = new CircleGeometry(1, 14);
+  const flatFace = new CircleGeometry(FACE_INSET, 14);
+  return { blank, decal, shadow, flatRim, flatFace };
 }
 
 /**
@@ -78,9 +88,12 @@ export type Coin = {
   blank: Mesh;
   logo: Mesh;
   logoMat: MeshBasicMaterial;
+  /** `flat` = unlit billboard (mobile); `lit` = Standard cylinder (desktop). */
+  mode: "flat" | "lit";
 };
 
-export function createCoin(
+/** Desktop-only lit cylinder chip (MeshStandard — shared materials). */
+export function createLitCoin(
   geo: CoinGeometry,
   mats: CoinMaterials,
   logoTexture: Texture,
@@ -103,7 +116,44 @@ export function createCoin(
   const group = new Group();
   group.add(blank);
   group.add(logo);
-  return { group, blank, logo, logoMat };
+  return { group, blank, logo, logoMat, mode: "lit" };
+}
+
+/** Mobile-only unlit flat quad — no StandardMaterial, no lights. */
+export function createFlatCoin(
+  geo: CoinGeometry,
+  logoTexture: Texture,
+  rimIndex: number,
+): Coin {
+  const rimColor = FLAT_RIM_COLORS[rimIndex % FLAT_RIM_COLORS.length];
+  const blank = new Mesh(
+    geo.flatRim,
+    new MeshBasicMaterial({ color: rimColor, toneMapped: false }),
+  );
+  const logoMat = new MeshBasicMaterial({
+    map: logoTexture,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const logo = new Mesh(geo.flatFace, logoMat);
+  logo.position.z = 0.01;
+  logo.renderOrder = 2;
+
+  const group = new Group();
+  group.add(blank);
+  group.add(logo);
+  return { group, blank, logo, logoMat, mode: "flat" };
+}
+
+/** @deprecated Use createLitCoin / createFlatCoin. */
+export function createCoin(
+  geo: CoinGeometry,
+  mats: CoinMaterials,
+  logoTexture: Texture,
+  rimIndex: number,
+): Coin {
+  return createLitCoin(geo, mats, logoTexture, rimIndex);
 }
 
 export function createShadow(geo: CoinGeometry, texture: Texture): Mesh {
@@ -168,6 +218,10 @@ export function createLights(): Light[] {
   rim.position.set(0.8, 0.5, -0.4);
 
   return [ambient, key, rim];
+}
+
+export function setLightsEnabled(lights: Light[], enabled: boolean) {
+  for (const light of lights) light.visible = enabled;
 }
 
 export { THICKNESS };

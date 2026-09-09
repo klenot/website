@@ -45,13 +45,15 @@ import {
   placeCircles,
 } from "./circleFieldModel";
 import {
-  createCoin,
   createCoinGeometry,
   createCoinMaterials,
+  createFlatCoin,
   createLights,
+  createLitCoin,
   createMouthOccluder,
   createShadow,
   createShadowTexture,
+  setLightsEnabled,
   type Coin,
   type CoinGeometry,
   type CoinMaterials,
@@ -60,13 +62,15 @@ import {
 const FOV = 30;
 // Small per-tier z only for correct-sorted overlaps; visible near/far comes from
 // a baked SIZE multiplier (below), so landing stays pixel-exact.
-const Z_SORT = 60;
-const HERO_LIFT = 80; // chips float a little in front while up in the hero
+const Z_SORT = 72;
+const HERO_LIFT = 88; // chips float a little in front while up in the hero
 
 // Idle stop: after this long with no scroll/resize/IO wake, drift eases to 0
 // over the decay window and the rAF loop halts until the next wake.
 const IDLE_HOLD_MS = 220;
 const IDLE_DECAY_MS = 900;
+/** Mobile scrub cap (~30 FPS) — Marek device scroll perf. */
+const MOBILE_FRAME_MS = 33;
 
 const smoother = (t: number) => {
   const c = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -145,6 +149,10 @@ export default function CircleFieldThree({
   const activityRef = useRef(1);
   const lastWakeRef = useRef(0);
   const lastFrameRef = useRef(0);
+  const lastRenderRef = useRef(0);
+  const mobileFlatRef = useRef(false);
+  const poolCountRef = useRef(0);
+  const shadowTexRef = useRef<Texture | null>(null);
 
   const reduced = useReducedMotion();
   const circles = useMemo(() => makeCircles(), []);
@@ -289,51 +297,52 @@ export default function CircleFieldThree({
 
         if (pose.hidden) {
           coin.group.visible = false;
-          shadow.visible = false;
+          if (shadow) shadow.visible = false;
           continue;
         }
 
         const tier = c.depthTier ?? 0.5;
         const nearF = 1 - tier;
 
-        // Appear (scale-in) reveal — avoids toggling opacity on opaque coins.
-        const ap = rest ? 1 : Math.min(1, appear[i] + 0.08);
+        // Appear (scale-in) reveal — box coins start visible (cast continuity).
+        const appearRate = c.origin === "box" ? 1 : 0.06 + (i - BOX_COUNT) * 0.012;
+        const ap = rest ? 1 : Math.min(1, appear[i] + appearRate);
         appear[i] = ap;
         const apEase = ap * ap * (3 - 2 * ap);
 
         // Near/far SIZE (drives visible parallax; landing stays pixel-exact).
-        const sizeMul = 1 + (nearF - 0.5) * 0.34;
-        const settle = c.origin === "box" ? 1 : 1 + (1 - dockEase) * 0.06;
+        const sizeMul = 1 + (nearF - 0.5) * 0.44;
+        const settle = c.origin === "box" ? 1 : 1 + (1 - dockEase) * 0.05;
         const screenR = (CIRCLE_LOGOS[i].size * scale * sizeMul * settle) / 2;
 
         // --- MOUTH: a chip straddling the box top dips behind the rim occluder
         //     (which lives just behind z=0, so settled/hero chips never clip) and
         //     squashes vertically as it squeezes through the lip. Position-based,
         //     so it only affects chips actually crossing — never stuck behind. ---
-        // Straddle peaks while the chip's center is at the lip and falls to 0
-        // by the time it has fully entered (top edge reaches the lip), so it
-        // pops to fully-visible right as it clears the rim — no vanish.
+        // Wide straddle band so 2–3 chips can half-clip at the lip mid-handoff.
         const dCross = pose.y - boxTopLocalY; // + = below the box top
         const straddle =
           c.origin === "hero"
-            ? sstep(-screenR, -screenR * 0.15, dCross) *
-              (1 - sstep(screenR * 0.35, screenR, dCross))
+            ? sstep(-screenR * 1.15, -screenR * 0.08, dCross) *
+              (1 - sstep(screenR * 0.08, screenR * 1.15, dCross))
             : 0;
 
         // Depth: sort offset kept >= 0 so nothing but a straddling chip is ever
         // behind the occluder; near tier sits in front for correct overlaps.
         const zSort = nearF * Z_SORT;
-        const zHero = HERO_LIFT + nearF * 30;
-        let zc = c.origin === "box" ? zSort : zHero + (zSort - zHero) * dockEase;
-        zc += Math.sin(frameTime * 0.0004 * (0.55 + nearF) + c.phase) * 6 * nearF * idle;
+        const zHero = HERO_LIFT + nearF * 36;
+        // Plane settle: orbit in z while hero-floating, ease down to card plane.
+        const zOrbit = c.origin === "hero" ? (1 - dockEase) * (zHero - zSort) : 0;
+        let zc = zSort + zOrbit;
+        zc += Math.sin(frameTime * 0.0004 * (0.55 + nearF) + c.phase) * 7 * nearF * idle;
         zc -= 130 * straddle; // dip behind the rim
 
         // --- depth-scaled scroll differential (near leads the dock, far lags) ---
-        const lead = c.origin === "box" ? 0 : (nearF - 0.5) * 26 * gauss(tv, 0.5, 0.2);
+        const lead = c.origin === "box" ? 0 : (nearF - 0.5) * 34 * gauss(tv, 0.5, 0.2);
 
         // --- screen anchor (overlay-local px -> world, y-up) + idle parallax ---
         const idleT = frameTime * (0.55 + nearF * 0.9); // far drifts slower
-        const parAmp = (0.4 + nearF) * 4 * idle;
+        const parAmp = (0.45 + nearF) * 5.2 * idle;
         const worldScreenX =
           pose.x + Math.sin(idleT * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
         const worldScreenY =
@@ -353,8 +362,8 @@ export default function CircleFieldThree({
         coin.group.position.set(worldX, worldY, zc);
         // Squash through the lip: pinch vertically, bulge slightly wide.
         coin.group.scale.set(
-          Math.max(0.0001, worldR * (1 + 0.13 * straddle)),
-          Math.max(0.0001, worldR * (1 - 0.32 * straddle)),
+          Math.max(0.0001, worldR * (1 + 0.14 * straddle)),
+          Math.max(0.0001, worldR * (1 - 0.34 * straddle)),
           Math.max(0.0001, worldR),
         );
 
@@ -369,15 +378,16 @@ export default function CircleFieldThree({
           Math.sin(idleT * 0.00052 + (c.spinPhase ?? 0) * 1.3) * 0.09 * (0.4 + nearF) * idle;
 
         // --- grounded soft contact shadow (desktop only; invisible on black) ---
-        if (mobile) {
-          shadow.visible = false;
+        if (mobile || !shadow) {
+          if (shadow) shadow.visible = false;
         } else {
           const shMat = shadow.material as { opacity: number };
           shadow.visible = true;
-          const shScale = screenR * f * 2 * 1.5;
-          shadow.position.set(worldX, worldY - worldR * 0.5, zc - 6);
-          shadow.scale.set(shScale, shScale, 1);
-          shMat.opacity = 0.3 * apEase;
+          const landFade = c.origin === "hero" ? dockEase : 1;
+          const shScale = screenR * f * 2 * 1.55;
+          shadow.position.set(worldX, worldY - worldR * 0.52, zc - 5);
+          shadow.scale.set(shScale, shScale * 0.72, 1);
+          shMat.opacity = 0.34 * apEase * landFade;
         }
       }
 
@@ -411,7 +421,7 @@ export default function CircleFieldThree({
     maxVisibleRef.current = narrow ? 6 : CIRCLE_LOGOS.length;
 
     // Lower DPR caps to cut fill-rate (Marek: painfully slow scrolling).
-    const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.25 : 1.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.0 : 1.25);
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
 
@@ -445,6 +455,14 @@ export default function CircleFieldThree({
     const tick = (time: number) => {
       if (!runningRef.current) return;
 
+      // Mobile scrub throttle (~30 FPS) — skip pose/render, keep the loop alive.
+      if (mobileRef.current && lastRenderRef.current > 0) {
+        if (time - lastRenderRef.current < MOBILE_FRAME_MS) {
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        }
+      }
+
       // Ease idle activity down once the settle hold elapses; a wake resets it.
       const dt = lastFrameRef.current ? time - lastFrameRef.current : 16;
       lastFrameRef.current = time;
@@ -453,6 +471,7 @@ export default function CircleFieldThree({
       }
 
       applyPosesRef.current(time, false);
+      lastRenderRef.current = time;
 
       // True idle stop: once drift has fully faded, render nothing more until
       // the next scroll / resize / IO wake.
@@ -499,12 +518,98 @@ export default function CircleFieldThree({
     else stopLoop();
   }, [renderStatic, stopLoop, wake]);
 
+  const disposeCoin = useCallback((coin: Coin, scene: Scene) => {
+    scene.remove(coin.group);
+    coin.logoMat.dispose();
+    (coin.logoMat.map as Texture | null)?.dispose();
+    if (coin.mode === "flat") {
+      (coin.blank.material as { dispose: () => void }).dispose();
+    }
+  }, []);
+
+  const syncCoinPool = useCallback(() => {
+    const scene = sceneRef.current;
+    const geo = geoRef.current;
+    const mats = matsRef.current;
+    const renderer = rendererRef.current;
+    if (!scene || !geo || !mats || !renderer) return;
+
+    const narrow = window.innerWidth < 768;
+    const count = narrow ? 6 : CIRCLE_LOGOS.length;
+    const useFlat = narrow;
+    mobileRef.current = narrow;
+    maxVisibleRef.current = count;
+
+    if (poolCountRef.current === count && mobileFlatRef.current === useFlat) return;
+
+    // Tear down the previous pool.
+    for (const coin of coinsRef.current) disposeCoin(coin, scene);
+    for (const shadow of shadowsRef.current) {
+      scene.remove(shadow);
+      (shadow.material as { dispose: () => void }).dispose();
+    }
+    if (shadowTexRef.current) {
+      shadowTexRef.current.dispose();
+      shadowTexRef.current = null;
+    }
+    coinsRef.current = [];
+    shadowsRef.current = [];
+
+    setLightsEnabled(lightsRef.current, !useFlat);
+    mobileFlatRef.current = useFlat;
+    poolCountRef.current = count;
+
+    const loader = new TextureLoader();
+    const maxAniso = renderer.capabilities.getMaxAnisotropy();
+    let shadowTex: Texture | null = null;
+    if (!useFlat) {
+      shadowTex = createShadowTexture();
+      shadowTexRef.current = shadowTex;
+    }
+
+    const coins: Coin[] = [];
+    const shadows: Mesh[] = [];
+    const appear: number[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const logo = CIRCLE_LOGOS[i];
+      const texture: Texture = loader.load(`/logos/${logo.file}`, () => {
+        renderStatic(reducedRef.current);
+      });
+      texture.colorSpace = SRGBColorSpace;
+      texture.anisotropy = narrow ? 1 : maxAniso;
+
+      if (!useFlat && shadowTex) {
+        const shadow = createShadow(geo, shadowTex);
+        scene.add(shadow);
+        shadows.push(shadow);
+      }
+
+      const rimIndex = Math.round((circles[i]?.depthTier ?? 0.5) * 2);
+      const coin = useFlat
+        ? createFlatCoin(geo, texture, rimIndex)
+        : createLitCoin(geo, mats, texture, rimIndex);
+      scene.add(coin.group);
+      coins.push(coin);
+
+      // Cast continuity: box coins visible from idle; hero coins stage in.
+      appear.push(circles[i]?.origin === "box" ? 1 : 0);
+    }
+
+    coinsRef.current = coins;
+    shadowsRef.current = shadows;
+    appearRef.current = appear;
+  }, [circles, disposeCoin, renderStatic]);
+
   // Scene setup / teardown.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const narrow = window.innerWidth < 768;
+    mobileRef.current = narrow;
+    maxVisibleRef.current = narrow ? 6 : CIRCLE_LOGOS.length;
+
     const renderer = new WebGLRenderer({
       canvas,
       alpha: true,
@@ -521,6 +626,7 @@ export default function CircleFieldThree({
     const lights = createLights();
     for (const light of lights) scene.add(light);
     lightsRef.current = lights;
+    setLightsEnabled(lights, !narrow);
 
     const camera = new PerspectiveCamera(FOV, 1, 1, 5000);
     cameraRef.current = camera;
@@ -529,37 +635,14 @@ export default function CircleFieldThree({
     geoRef.current = geo;
     const mats = createCoinMaterials();
     matsRef.current = mats;
-    const shadowTex = createShadowTexture();
-    const loader = new TextureLoader();
-    const maxAniso = renderer.capabilities.getMaxAnisotropy();
 
     const occluder = createMouthOccluder();
     scene.add(occluder);
     occluderRef.current = occluder;
 
-    const coins: Coin[] = [];
-    const shadows: Mesh[] = [];
-    appearRef.current = CIRCLE_LOGOS.map(() => 0);
-
-    CIRCLE_LOGOS.forEach((logo, i) => {
-      const texture: Texture = loader.load(`/logos/${logo.file}`, () => {
-        renderStatic(reducedRef.current);
-      });
-      texture.colorSpace = SRGBColorSpace;
-      texture.anisotropy = maxAniso;
-
-      const shadow = createShadow(geo, shadowTex);
-      scene.add(shadow);
-      shadows.push(shadow);
-
-      // Vary the rim tint by depth tier so the chips aren't all identical.
-      const rimIndex = Math.round((circles[i]?.depthTier ?? 0.5) * 2);
-      const coin = createCoin(geo, mats, texture, rimIndex);
-      scene.add(coin.group);
-      coins.push(coin);
-    });
-    coinsRef.current = coins;
-    shadowsRef.current = shadows;
+    mobileFlatRef.current = narrow;
+    poolCountRef.current = 0;
+    syncCoinPool();
 
     resize();
     remeasure();
@@ -569,15 +652,13 @@ export default function CircleFieldThree({
       stopLoop();
       if (staticRafRef.current) cancelAnimationFrame(staticRafRef.current);
       staticRafRef.current = 0;
-      for (const coin of coins) {
-        scene.remove(coin.group);
-        coin.logoMat.dispose();
-        (coin.logoMat.map as Texture | null)?.dispose();
-      }
-      for (const shadow of shadows) {
+      for (const coin of coinsRef.current) disposeCoin(coin, scene);
+      for (const shadow of shadowsRef.current) {
         scene.remove(shadow);
         (shadow.material as { dispose: () => void }).dispose();
       }
+      shadowTexRef.current?.dispose();
+      shadowTexRef.current = null;
       for (const light of lights) {
         scene.remove(light);
         light.dispose();
@@ -585,10 +666,11 @@ export default function CircleFieldThree({
       lightsRef.current = [];
       for (const rim of mats.rimMats) rim.dispose();
       mats.capMat.dispose();
-      shadowTex.dispose();
       geo.blank.dispose();
       geo.decal.dispose();
       geo.shadow.dispose();
+      geo.flatRim.dispose();
+      geo.flatFace.dispose();
       scene.remove(occluder);
       (occluder.material as { dispose: () => void }).dispose();
       occluder.geometry.dispose();
@@ -598,6 +680,7 @@ export default function CircleFieldThree({
       cameraRef.current = null;
       coinsRef.current = [];
       shadowsRef.current = [];
+      poolCountRef.current = 0;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -610,13 +693,14 @@ export default function CircleFieldThree({
 
     const onResize = () => {
       resize();
+      syncCoinPool();
       remeasure();
       if (reducedRef.current) renderStatic(true);
       else wake();
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [remeasure, renderStatic, resize, syncActive, wake, isDesktop, pathConfig, reduced]);
+  }, [remeasure, renderStatic, resize, syncActive, syncCoinPool, wake, isDesktop, pathConfig, reduced]);
 
   useEffect(() => {
     const svg = svgRef.current;

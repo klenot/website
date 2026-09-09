@@ -63,6 +63,11 @@ export default function Services({
         style={{ marginLeft: marginX, marginRight: marginX, borderRadius }}
         className="relative aspect-[9/16] overflow-hidden bg-black md:aspect-video"
       >
+        {/* Soft inner top shade — inside the card only, no exterior glow line. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[32%] bg-linear-to-b from-black/55 via-black/20 to-transparent"
+        />
         <motion.p
           style={{ opacity: textOpacity }}
           className="absolute inset-x-0 bottom-6 px-6 text-center font-mono text-white md:bottom-8"
