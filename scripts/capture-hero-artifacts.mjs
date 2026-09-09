@@ -9,7 +9,8 @@ import path from "node:path";
 const BASE = process.argv[2] ?? "http://127.0.0.1:3000";
 const OUT = path.join(process.cwd(), "docs/hero-artifacts");
 
-const MOUTH_SCROLL_CENTER = 0.39;
+// Keep in sync with MOUTH_SCROLL_CENTER in serviceReveal.ts (mid spread phase).
+const MOUTH_SCROLL_CENTER = 0.3;
 const SETTLED_TRAVEL = 0.54;
 
 /** Mirror motion `useScroll` offset ["start end", "end start"] for #services. */

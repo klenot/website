@@ -13,9 +13,7 @@ import {
 } from "motion/react";
 import type { MotionValue } from "motion/react";
 import {
-  CIRCLE_TRAVEL_BREAKPOINTS,
-  CIRCLE_TRAVEL_VALUES,
-  interpolateProgress,
+  circleTravelFromSpread,
   SPREAD_OFFSET,
   spreadMarginPx,
 } from "./serviceReveal";
@@ -73,9 +71,7 @@ export default function CircleField({
     target: servicesRef,
     offset: SPREAD_OFFSET,
   });
-  const travel = useTransform(scrollYProgress, (progress) =>
-    interpolateProgress(progress, CIRCLE_TRAVEL_BREAKPOINTS, CIRCLE_TRAVEL_VALUES),
-  );
+  const travel = useTransform(scrollYProgress, circleTravelFromSpread);
 
   const widthMV = useMotionValue(0);
   useEffect(() => {

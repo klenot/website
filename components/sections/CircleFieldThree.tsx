@@ -22,9 +22,7 @@ import {
 } from "motion/react";
 import type { MotionValue } from "motion/react";
 import {
-  CIRCLE_TRAVEL_BREAKPOINTS,
-  CIRCLE_TRAVEL_VALUES,
-  interpolateProgress,
+  circleTravelFromSpread,
   SPREAD_OFFSET,
   spreadMarginPx,
 } from "./serviceReveal";
@@ -173,9 +171,7 @@ export default function CircleFieldThree({
     target: servicesRef,
     offset: SPREAD_OFFSET,
   });
-  const travel = useTransform(scrollYProgress, (progress) =>
-    interpolateProgress(progress, CIRCLE_TRAVEL_BREAKPOINTS, CIRCLE_TRAVEL_VALUES),
-  );
+  const travel = useTransform(scrollYProgress, circleTravelFromSpread);
 
   const widthMV = useMotionValue(0);
   const marginPx = useTransform([scrollYProgress, widthMV], ([progress, width]) =>
@@ -318,8 +314,8 @@ export default function CircleFieldThree({
         const inMouth =
           c.origin === "hero" &&
           c.mouthPack &&
-          tv > 0.16 &&
-          tv < 0.62;
+          tv > 0.05 &&
+          tv < 0.95;
 
         // --- depth-scaled scroll differential (near leads the dock, far lags) ---
         const lead =
@@ -737,7 +733,7 @@ export default function CircleFieldThree({
       });
     }
     // Refresh landing band during the mouth window so lip straddles stay pixel-locked.
-    if (value > 0.12 && value < 0.68) remeasure();
+    if (value > 0.05 && value < 0.95) remeasure();
     if (reducedRef.current) {
       if (visibleRef.current) renderStatic(true);
     } else if (visibleRef.current) {

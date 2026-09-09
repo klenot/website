@@ -37,15 +37,26 @@ export function spreadMarginPx(progress: number, width: number): number {
   return Math.max(INSET_MIN_PX, Math.min(INSET_MAX_PX, px));
 }
 
-// Hero-circle travel, scrubbed across a WIDE window with smoothstep easing so
-// the hero→box handoff feels continuous (not a teleport). Logos begin gliding
-// as the box starts spreading (~0.28) and finish docking by ~0.58. The mouth
-// snapshot (2–3 chips straddling the lip) peaks near MOUTH_TRAVEL_CENTER.
-export const CIRCLE_TRAVEL_BREAKPOINTS = [0, 0.28, 0.58, 0.8, 0.95, 1] as const;
-export const CIRCLE_TRAVEL_VALUES = [0, 0, 1, 1, 0, 0] as const;
+/** Narrowest inset (hero / card closed) — same as SPREAD_INSET_FRAC[0]. */
+const SPREAD_INSET_NARROW = SPREAD_INSET_FRAC[0];
+/** Widest inset (card open) — same as SPREAD_INSET_FRAC[2]. */
+const SPREAD_INSET_WIDE = SPREAD_INSET_FRAC[2];
+
+/**
+ * Circle travel (`placeCircles` `travel` arg) derived from the live spread
+ * inset so coin glide and box width scrub in lockstep (both directions).
+ * 0 = hero, 1 = docked in the open card.
+ */
+export function circleTravelFromSpread(progress: number): number {
+  const inset = interpolateProgress(progress, SPREAD_BREAKPOINTS, SPREAD_INSET_FRAC);
+  const span = SPREAD_INSET_NARROW - SPREAD_INSET_WIDE;
+  if (span <= 0) return 0;
+  const t = (SPREAD_INSET_NARROW - inset) / span;
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
 
 /** Services scroll progress where the mouth snapshot is taken (artifact script). */
-export const MOUTH_SCROLL_CENTER = 0.39;
+export const MOUTH_SCROLL_CENTER = 0.3;
 
 // The scroll offset both Services and CircleField MUST pass to useScroll for the
 // breakpoints above to mean the same thing in both. Shared here so the whole
@@ -74,9 +85,5 @@ export function interpolateProgress(
   return values[last];
 }
 
-/** Circle travel (`placeCircles` `travel` arg) at MOUTH_SCROLL_CENTER — keep in sync. */
-export const MOUTH_TRAVEL_CENTER = interpolateProgress(
-  MOUTH_SCROLL_CENTER,
-  CIRCLE_TRAVEL_BREAKPOINTS,
-  CIRCLE_TRAVEL_VALUES,
-);
+/** Circle travel at MOUTH_SCROLL_CENTER — keep in sync with capture script. */
+export const MOUTH_TRAVEL_CENTER = circleTravelFromSpread(MOUTH_SCROLL_CENTER);
