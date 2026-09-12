@@ -60,7 +60,7 @@ Designed to streamline startup environments and mid-sized companies through oper
 * Implemented underlying technical marketing workflows and tracking enhancements to streamline data infrastructure.
 
 ### Wonder Makers, s.r.o. (https://wondermakers.digital/)
-**Head of Marketing** | *2024*
+**Marketing Lead** | *2024*
 * Led comprehensive marketing directions and product positioning for high-end digital design and cross-platform solutions. Aligned internal creative performance directly with overarching business growth strategies.
 
 ### Easy Software (https://www.easyproject.com/)

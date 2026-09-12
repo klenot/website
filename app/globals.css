@@ -370,4 +370,19 @@ body::-webkit-scrollbar,
   .cv-ticker-track {
     animation: none;
   }
+
+  .cv-hero-track {
+    height: auto !important;
+  }
+
+  .cv-hero-header {
+    position: relative !important;
+    min-height: 0 !important;
+  }
+
+  .cv-hero-photo {
+    width: 360px !important;
+    max-width: 100% !important;
+    aspect-ratio: 1 / 1 !important;
+  }
 }

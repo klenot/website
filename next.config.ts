@@ -26,6 +26,14 @@ const nextConfig: NextConfig = {
         source: "/blog/preview/:slug*",
         headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
       },
+      {
+        source: "/about/cv-klenoticmarek",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
+      {
+        source: "/about/cv-klenoticmarek/:path*",
+        headers: [{ key: "X-Robots-Tag", value: "noindex, nofollow" }],
+      },
     ];
   },
 };

@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { trackEvent } from "@/lib/mixpanel";
+import CvHero from "./CvHero";
 import HobbiesTicker from "./HobbiesTicker";
 
 const CONTACT_HREF = "mailto:klenoticmarek@mklenotic.com";
@@ -44,7 +44,7 @@ const HERO_CTAS: Cta[] = [
 
 const EXPERIENCE: { company: string; role: string; year: string }[] = [
   { company: "Bandits (Lasso)", role: "COO", year: "2025" },
-  { company: "Wonder Makers, s.r.o.", role: "Head of Marketing", year: "2024" },
+  { company: "Wonder Makers, s.r.o.", role: "Marketing Lead", year: "2024" },
   {
     company: "Easy Software (Easy Project / Easy Redmine)",
     role: "MarTech Specialist & Project manager",
@@ -74,13 +74,47 @@ const EDUCATION: { years: string; title: string; place: string }[] = [
 ];
 
 const SKILL_GROUPS: { label: string; items: string[] }[] = [
-  { label: "Certification", items: ["PMI CAPM"] },
+  {
+    label: "Certification",
+    items: [
+      "PMI CAPM",
+      "Mimo Full-stack Web Development",
+      "Mimo Python Core Concepts",
+      "HubSpot Digital Marketing",
+      "Google Display Ads",
+      "Google Search Ads",
+      "Advanced Google Analytics",
+      "Advanced Google Tag Manager",
+    ],
+  },
   {
     label: "AI & agents",
-    items: ["Cursor", "Grok Bot", "multi-agent orchestration"],
+    items: [
+      "Cursor",
+      "Grok Bot",
+      "multi-agent orchestration",
+      "AI-first Company Principles",
+    ],
   },
-  { label: "Analytics", items: ["GA4", "GTM"] },
-  { label: "Web", items: ["HTML", "CSS", "React"] },
+  {
+    label: "Analytics",
+    items: [
+      "GA4",
+      "GTM",
+      "Funnel design and configuration",
+      "AI-based automated reporting",
+    ],
+  },
+  { label: "Web", items: ["HTML", "CSS", "React", "Next.js"] },
+  {
+    label: "Product",
+    items: [
+      "Digital product design",
+      "App and web infra",
+      "UX testing and improvements",
+      "Performance benchmarks",
+    ],
+  },
   {
     label: "Code",
     items: [
@@ -90,10 +124,26 @@ const SKILL_GROUPS: { label: string; items: string[] }[] = [
       "Postgres",
       "Expo",
       "Supabase",
+      "Cloudflare",
     ],
   },
   { label: "Email & CRM", items: ["MailerLite", "Targito"] },
-  { label: "Languages", items: ["Czech (native)", "English (C1)"] },
+  {
+    label: "Social media",
+    items: [
+      "General outreach",
+      "Targeted campaigns",
+      "Agent-orchestration for optimized and efficient posting process (5x posting speed)",
+    ],
+  },
+  {
+    label: "Event management",
+    items: ["Conference booth design and organization"],
+  },
+  {
+    label: "Languages",
+    items: ["Czech (native)", "English (C1)", "Deutsch (B1-2, learning)"],
+  },
 ];
 
 const SHIP_GROUPS: {
@@ -104,31 +154,54 @@ const SHIP_GROUPS: {
     label: "Technical / builder",
     items: [
       {
-        title: "Reverse engineering",
-        detail: "VBA→JS logic for Planeo/FAST product formulas",
-      },
-      {
-        title: "Data pipeline architecture",
-        detail: "price-parity monitoring: Python, Postgres, Cloudflare",
+        title: "Multi-agent orchestration",
+        detail:
+          "using multiple agents in the development process, building self-healing repos, and agent-to-agent feedback loops with scoring per agent specialization",
       },
       {
         title: "Full-stack",
         detail: "Dattoo: React Native/Expo, Supabase",
       },
-      { title: "Web scraping / data extraction" },
+      {
+        title: "Data pipeline architecture",
+        detail:
+          "price-parity monitoring: Python, Postgres, Cloudflare; production planning for Italinox",
+      },
+      {
+        title: "Useful automations",
+        detail: "MailerLite in Framer via a Cloudflare worker",
+      },
+      {
+        title: "Reverse engineering",
+        detail: "VBA → JS logic for Planeo/FAST ČR product formulas",
+      },
+      {
+        title: "Web scraping / data extraction",
+        detail:
+          "basics, with help from providers such as Exa, Firecrawl scrape, SerpAPI, Browser Use Cloud, Parallel, and Cloudflare",
+      },
     ],
   },
   {
     label: "Marketing / GTM",
     items: [
       {
+        title: "Brand",
+        detail:
+          "Lasso tone of voice and client delivery, ensuring all Lasso clients feel heard",
+      },
+      {
         title: "Competitive positioning",
         detail: "comparison pages vs Akeneo, Salsify, etc.",
       },
-      { title: "Analytics implementation", detail: "GA4/GTM" },
       {
-        title: "Outbound / sales copy",
-        detail: "Apollo sequences, ICP work for DACH/Nordic",
+        title: "Analytics implementation",
+        detail: "GA4/GTM, funnels, and AI-first reporting",
+      },
+      {
+        title: "Outbound / sales",
+        detail:
+          "end-to-end sales process design, Apollo sequences, strategic resources (ICP, pricing, SLA, service description), and an AI-first sales process",
       },
       {
         title: "Event / conference marketing",
@@ -139,10 +212,6 @@ const SHIP_GROUPS: {
   {
     label: "Management / ops",
     items: [
-      {
-        title: "Proposal writing & scoping",
-        detail: "drum e-commerce, floor-plan app, onboarding system",
-      },
       { title: "Client discovery synthesis", detail: "OKIN → action items" },
       { title: "Solo product ownership", detail: "Dattoo end to end" },
     ],
@@ -319,12 +388,34 @@ function ShareIcon() {
   );
 }
 
+function Reveal({
+  open,
+  className = "",
+  children,
+}: {
+  open: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`grid transition-[grid-template-rows,opacity] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+        open
+          ? "grid-rows-[1fr] opacity-100"
+          : "grid-rows-[0fr] opacity-0"
+      } ${className}`}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
 function ToggleChevron({ expanded }: { expanded: boolean }) {
   return (
     <svg
       aria-hidden
       viewBox="0 0 24 24"
-      className={`size-4 transition-transform duration-200 ${
+      className={`size-4 transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
         expanded ? "rotate-180" : ""
       }`}
       fill="none"
@@ -419,9 +510,8 @@ function CtaGroup({ withShare = false }: { withShare?: boolean }) {
 
 function HeroBio() {
   const [expanded, setExpanded] = useState(false);
-  const visibleParagraphs = expanded
-    ? BIO_PARAGRAPHS
-    : BIO_PARAGRAPHS.slice(0, BIO_COLLAPSED_COUNT);
+  const preview = BIO_PARAGRAPHS.slice(0, BIO_COLLAPSED_COUNT);
+  const rest = BIO_PARAGRAPHS.slice(BIO_COLLAPSED_COUNT);
 
   const toggle = () => {
     setExpanded((prev) => {
@@ -433,10 +523,19 @@ function HeroBio() {
 
   return (
     <div className="w-full text-left">
-      <div className="space-y-6 font-mono text-base font-light leading-relaxed text-black/70">
-        {visibleParagraphs.map((paragraph) => (
-          <p key={paragraph.id}>{paragraph.body}</p>
-        ))}
+      <div className="font-mono text-base font-light leading-relaxed text-black/70">
+        <div className="space-y-6">
+          {preview.map((paragraph) => (
+            <p key={paragraph.id}>{paragraph.body}</p>
+          ))}
+        </div>
+        <Reveal open={expanded}>
+          <div className="space-y-6 pt-6">
+            {rest.map((paragraph) => (
+              <p key={paragraph.id}>{paragraph.body}</p>
+            ))}
+          </div>
+        </Reveal>
       </div>
 
       <button
@@ -489,7 +588,7 @@ function CertificatesSkills() {
         ))}
       </ul>
 
-      {expanded ? (
+      <Reveal open={expanded}>
         <div className="mt-10 flex flex-col gap-8">
           {SHIP_GROUPS.map((group) => (
             <div key={group.label}>
@@ -515,7 +614,7 @@ function CertificatesSkills() {
             </div>
           ))}
         </div>
-      ) : null}
+      </Reveal>
 
       <button
         type="button"
@@ -564,50 +663,27 @@ function Section({
 
 export default function CvContent() {
   return (
-    <main className="flex min-h-dvh flex-col items-center bg-white px-4 pt-16 pb-24">
+    <main className="flex min-h-dvh flex-col items-center bg-white px-4 pb-24">
       <div className="flex w-full max-w-[640px] flex-col">
-        {/* Top nav — mirrors the blog post breadcrumb. Page is unlisted /
-            noindex, so no marketing chrome. */}
-        <nav
-          aria-label="CV navigation"
-          className="mb-16 self-start font-mono text-[0.8125rem] text-black"
+        <CvHero
+          nav={
+            <nav
+              aria-label="CV navigation"
+              className="font-mono text-[0.8125rem] text-black"
+            >
+              <Link href="/" className="transition-colors hover:text-blue-600">
+                ← home
+              </Link>
+              <span className="text-black/40"> / </span>
+              <span className="text-black/40">cv</span>
+            </nav>
+          }
         >
-          <Link href="/" className="transition-colors hover:text-blue-600">
-            ← home
-          </Link>
-          <span className="text-black/40"> / </span>
-          <span className="text-black/40">cv</span>
-        </nav>
-
-        {/* Hero — centered editorial header. */}
-        <header className="flex flex-col items-center text-center">
-          <span className="mb-6 block font-mono text-[0.6875rem] tracking-wider text-black/50 uppercase">
-            Curriculum Vitae
-          </span>
-
-          <div className="mb-8 w-full max-w-[280px] overflow-hidden rounded-md border border-black/10">
-            <Image
-              src="/about/cv-klenoticmarek/portrait.jpg"
-              alt="Portrait of Marek Klenotič wearing a white TALENT INSIDE t-shirt"
-              width={910}
-              height={946}
-              priority
-              className="h-auto w-full object-cover"
-              sizes="280px"
-            />
-          </div>
-
-          <h1 className="font-mono text-[1.802rem] font-bold leading-[1.3] tracking-[-0.02em] text-black md:text-[2.25rem]">
-            Hi! I&apos;m Marek Klenotič
-          </h1>
-
-          <div className="mt-8">
-            <CtaGroup />
-          </div>
-        </header>
+          <CtaGroup />
+        </CvHero>
 
         {/* Bio journey — left-aligned prose in the centered column. */}
-        <div className="mt-16">
+        <div className="mt-6">
           <HeroBio />
         </div>
 

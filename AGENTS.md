@@ -30,6 +30,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | `blog_post_clicked` | Blog list item click | `slug`, `title`, `category`, `source` |
 | `contact_email_copied` | Footer “get in touch” click | `email` |
 | `experience_logo_clicked` | Experience logo outbound link | `company`, `href` |
+| `cv_cta_clicked` | CV page CTA (download, contact, LinkedIn, Lasso, share) | `cta`, `href` |
+| `cv_bio_company_clicked` | CV bio company outbound link | `href` |
+| `cv_bio_toggled` | CV bio Read more / less | `expanded` |
+| `cv_skills_read_more` | CV skills Read more / less | `expanded` |
 
 ### Engagement tracking
 
