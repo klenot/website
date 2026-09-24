@@ -33,10 +33,6 @@ export const PATH_CIRCLE_NEXTJS = 5;
 export const BOX_COUNT = 4;
 export const HERO_COUNT = 6;
 
-// Landed coins live in a TIGHT upper band of the box, so the empty strip above
-// the bottom-pinned copy reads as intentional negative space (not a sparse void).
-const BOX_BAND_TOP = 0.16;
-const BOX_BAND_BOTTOM = 0.48;
 
 export function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -63,39 +59,21 @@ export function makeCircles(): CircleModel[] {
   const rand = mulberry32(20260902);
   const pick = (a: number, b: number) => a + rand() * (b - a);
 
-  const TOTAL = BOX_COUNT + HERO_COUNT;
-
-  // Landing slots inside the box's upper band: best-candidate spacing measured
-  // in on-screen proportions (the 16:9 band is ~0.56 as tall as it is wide),
-  // so settled chips sit in a loose, non-overlapping cluster.
+  // Settled flock (band fractions): a staggered upper row of six hero slots,
+  // evenly spaced so neighbours clear each other even while crossing the lip
+  // together, and four seeded box chips nested one row deeper between them
+  // (incoming chips land above them and never pass over one).
   const slotRand = mulberry32(7310452);
-  const slotPick = (a: number, b: number) => a + slotRand() * (b - a);
-  const Y_ASPECT = 0.56;
-  const slots: { x: number; y: number }[] = [];
-  for (let i = 0; i < TOTAL; i++) {
-    let best = { x: 0.5, y: 0.3 };
-    let bestD = -1;
-    for (let attempt = 0; attempt < 90; attempt++) {
-      const cand = {
-        x: slotPick(0.1, 0.9),
-        y: slotPick(BOX_BAND_TOP, BOX_BAND_BOTTOM),
-      };
-      let d = Infinity;
-      for (const s of slots) {
-        const dx = s.x - cand.x;
-        const dy = (s.y - cand.y) * Y_ASPECT;
-        d = Math.min(d, dx * dx + dy * dy);
-      }
-      if (d > bestD) {
-        bestD = d;
-        best = cand;
-      }
-    }
-    slots.push(best);
-  }
-  // Seeded box chips take the deepest slots, so incoming hero chips land above
-  // them and never pass over one on the way in.
-  slots.sort((a, b) => b.y - a.y);
+  const jitter = (amt: number) => (slotRand() * 2 - 1) * amt;
+  const heroSlotList = Array.from({ length: HERO_COUNT }, (_, k) => ({
+    x: 0.15 + k * 0.14 + jitter(0.012),
+    y: (k % 2 === 0 ? 0.2 : 0.28) + jitter(0.015),
+  }));
+  const boxSlotList = [0.22, 0.4, 0.6, 0.78].map((x, k) => ({
+    x: x + jitter(0.012),
+    y: (k % 2 === 0 ? 0.43 : 0.46) + jitter(0.012),
+  }));
+  const slots = [...boxSlotList, ...heroSlotList];
 
   const circles: CircleModel[] = [];
 
@@ -131,9 +109,9 @@ export function makeCircles(): CircleModel[] {
   const heroCellW = 0.74 / heroCols;
   const heroRows = Math.ceil(HERO_COUNT / heroCols);
   const heroCellH = 0.66 / heroRows;
-  // Hero chips take the remaining slots in left-to-right order, so flight
+  // Hero chips take the upper-row slots in left-to-right order, so flight
   // paths never cross and the pack pours in as one clean sheet.
-  const heroSlots = slots.slice(BOX_COUNT).sort((a, b) => a.x - b.x);
+  const heroSlots = slots.slice(BOX_COUNT);
   const heroStart = circles.length;
   for (let i = 0; i < HERO_COUNT; i++) {
     const col = i % heroCols;
@@ -149,16 +127,15 @@ export function makeCircles(): CircleModel[] {
       ...decor(BOX_COUNT + i),
     });
   }
-  // Lip timing: one shared beat, with x-neighbours zipped a hair apart so two
-  // chips never meet the lip at the same spot, centre slightly first and the
-  // near tier a touch ahead of far. Total window ≈ 0.14 travel.
+  // Lip timing: one shared beat — neighbours zipped a hair apart, centre
+  // slightly first, near tier a touch ahead of far. Window ≈ 0.08 travel.
   circles
     .slice(heroStart)
     .sort((a, b) => a.fromX - b.fromX)
     .forEach((c, rank) => {
       c.toX = heroSlots[rank].x;
       c.toY = heroSlots[rank].y;
-      const zip = rank % 2 === 0 ? -0.05 : 0.05;
+      const zip = rank % 2 === 0 ? -0.022 : 0.022;
       const centreOut = Math.abs(c.toX - 0.5) * 0.04;
       const nearLead = ((c.depthTier ?? 0.5) - 0.5) * 0.02;
       c.packOffset = zip + centreOut + nearLead;
@@ -189,17 +166,18 @@ export const MOBILE_VISIBLE_MASK: readonly boolean[] = CIRCLE_LOGOS.map((_, i) =
 // Tidy staggered pack for the tall 9:16 box (band fractions). Seeded box chips
 // sit on the lower row so incoming chips never pass over them; each hero chip
 // lands on the side it starts from, and `po` sequences the lip in three quick
-// beats (deepest first, sides last) — the narrow box can't take four at once.
+// beats (deepest first, sides last, ~0.07 apart) — the narrow box can't take
+// four at once.
 const MOBILE_BOX_SLOTS: readonly { x: number; y: number; po?: number }[] = [
   { x: 0.27, y: 0.52 }, // openai
   { x: 0.73, y: 0.52 }, // supabase
   { x: 0.3, y: 0.66 },
   { x: 0.7, y: 0.66 },
-  { x: 0.27, y: 0.12, po: 0.04 }, // cursor
-  { x: 0.73, y: 0.12, po: 0.04 }, // nextjs
+  { x: 0.27, y: 0.12, po: 0.07 }, // cursor
+  { x: 0.73, y: 0.12, po: 0.07 }, // nextjs
   { x: 0.5, y: 0.255, po: 0 }, // claude
   { x: 0.5, y: 0.75 },
-  { x: 0.5, y: 0.39, po: -0.045 }, // gemini
+  { x: 0.5, y: 0.39, po: -0.075 }, // gemini
   { x: 0.5, y: 0.8 },
 ];
 

@@ -51,6 +51,7 @@ import {
   createCoinGeometry,
   createFlatCoin,
   createLights,
+  createFloorSpill,
   createLipShade,
   createLitCoin,
   createShadow,
@@ -58,7 +59,9 @@ import {
   createStudioEnvironment,
   disposeCoin,
   disposeCoinGeometry,
+  setCoinEnv,
   setCoinShade,
+  setFlatShadow,
   setLightsEnabled,
   type Coin,
   type CoinGeometry,
@@ -70,6 +73,8 @@ const FOV = 30;
 // (below) and projection is compensated, so landing stays pixel-exact.
 const Z_STEP = 26;
 const HERO_LIFT = 88; // chips float a little in front while up in the hero
+/** Card floor plane sits just behind every chip's z slot. */
+const FLOOR_Z = 40;
 
 // Idle stop: after this long with no scroll/resize/IO wake, drift eases to 0
 // over the decay window and the rAF loop halts until the next wake.
@@ -83,8 +88,8 @@ const MOBILE_FRAME_MS = 33;
 const APPEAR_MS = 620;
 const APPEAR_STEP_MS = 18;
 // Interior light inside the black card relative to the hero (1).
-const INSIDE_SHADE_LIT = 0.8;
-const INSIDE_SHADE_FLAT = 0.86;
+const INSIDE_SHADE_LIT = 0.86;
+const INSIDE_SHADE_FLAT = 0.9;
 
 const smoother = (t: number) => {
   const c = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -135,6 +140,7 @@ export default function CircleFieldThree({
   const shadowsRef = useRef<(Mesh | null)[]>([]);
   const appearStartRef = useRef(0);
   const lipShadeRef = useRef<Mesh<PlaneGeometry, ShaderMaterial> | null>(null);
+  const floorRef = useRef<Mesh<PlaneGeometry, ShaderMaterial> | null>(null);
   const geoRef = useRef<CoinGeometry | null>(null);
   const envRef = useRef<Texture | null>(null);
   const lightsRef = useRef<Light[]>([]);
@@ -338,12 +344,12 @@ export default function CircleFieldThree({
         // 0 in the hero, 1 once fully inside the card — continuous across the lip.
         const inside = hero ? sstep(-screenR * 0.9, screenR * 1.6, dCross) : 1;
 
-        // Contact: a light touch as the chip passes the lip, then a soft
-        // squash-and-settle as it lands on the card plane.
+        // Mouth: the chip squashes and leans back as it tucks under the rail,
+        // then a soft squash-and-settle as it lands on the card plane.
         const landU = hero ? Math.min(1, Math.max(0, (t - 0.74) / 0.26)) : 0;
         const landBump = Math.sin(Math.PI * landU) ** 2;
-        const lipBump = hero ? gauss(dCross, 0, screenR * 0.55) * (1 - landU) : 0;
-        const squash = 0.05 * landBump + 0.025 * lipBump;
+        const mouth = hero ? gauss(dCross, screenR * 0.15, screenR * 0.8) * (1 - landU) : 0;
+        const squash = 0.05 * landBump + 0.17 * mouth;
         // Micro-spring: sink a hair past the slot, rebound, rest exactly on it.
         const spring = hero ? Math.sin(2 * Math.PI * landU) * (1 - landU) : 0;
         const settleY = screenR * 0.1 * spring;
@@ -376,17 +382,18 @@ export default function CircleFieldThree({
         coin.group.visible = apEase > 0.01;
         coin.group.position.set(worldX, worldY, zc);
         coin.group.scale.set(
-          Math.max(0.0001, worldR * (1 + squash * 0.6)),
+          Math.max(0.0001, worldR * (1 + squash * 0.5)),
           Math.max(0.0001, worldR * (1 - squash)),
           Math.max(0.0001, worldR),
         );
 
         // Tilt: full rest tilt while floating, mostly levelled once on the plane.
         const restTilt = hero ? 1 - 0.55 * dock : 0.45;
-        const tipIn = hero ? gauss(t, 0.5, 0.24) * 0.2 : 0;
+        const tipIn = hero ? gauss(t, 0.5, 0.24) * 0.14 : 0;
         coin.group.rotation.x =
           (c.tiltX ?? 0) * restTilt +
           tipIn +
+          0.3 * mouth +
           0.09 * spring +
           Math.sin(idleT * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * idle;
         coin.group.rotation.y =
@@ -395,35 +402,65 @@ export default function CircleFieldThree({
 
         setCoinShade(coin, 1 - (1 - insideShade) * inside);
 
-        // Soft drop shadow: wide and offset while hovering over the hero, tight
-        // contact once on the plane (and naturally invisible on the black card).
-        if (shadow) {
-          const lift = hero ? 1 - dock : 0;
-          const off = screenR * (0.1 + 0.24 * lift);
-          const shScale = screenR * 2 * (1.02 + 0.3 * lift) * f * apEase;
+        // One shadow model for both LODs: wide + offset while hovering over the
+        // hero, a tight contact crescent once on the card floor.
+        const lift = hero ? 1 - dock : 0;
+        const shOff = 0.15 + 0.19 * lift; // x screenR
+        const shRad = 1.22 + 0.12 * lift; // x screenR
+        const shAlpha = (0.9 - 0.36 * lift) * apEase;
+        if (coin.mode === "flat") {
+          setFlatShadow(coin, shOff * 0.35, -shOff, shRad, shAlpha);
+        } else if (shadow) {
+          const off = screenR * shOff;
+          const shScale = screenR * 2 * shRad * f * apEase;
           const shMat = shadow.material as { opacity: number };
           shadow.visible = apEase > 0.01;
           shadow.position.set(worldX + off * 0.35 * f, worldY - off * f, zc - 1);
           shadow.scale.set(shScale, shScale * 0.94, 1);
-          shMat.opacity = (0.8 - 0.22 * lift) * apEase;
+          shMat.opacity = shAlpha;
         }
       }
 
-      // Inner-only box shade drawn over the chips (soft half-clip at the lip).
+      const boxW = Math.max(1, canvasW - 2 * mgn);
+      const topY = band.bandTop + offY;
+      const maxScreenR = (MAX_LOGO_SIZE * scale * 1.22) / 2;
+      const radius = interpolateProgress(
+        scrollYProgress.get(),
+        [0.25, 0.35, 0.8, 0.9],
+        [24, 14, 14, 24],
+      );
+      const rail = Math.max(10, maxScreenR * 0.3);
+
+      // Physical mouth over the chips: opaque rail + inner cast shadow.
       const shade = lipShadeRef.current;
       if (shade) {
-        const boxW = Math.max(1, canvasW - 2 * mgn);
-        const maxScreenR = (MAX_LOGO_SIZE * scale * 1.22) / 2;
-        const depth = Math.max(1, Math.min(band.bandH, maxScreenR * 1.9));
-        const topY = band.bandTop + offY;
+        const depth = Math.max(1, Math.min(band.bandH, rail + maxScreenR * 1.5));
         shade.position.set(mgn + boxW / 2, canvasH - (topY + depth / 2), 0);
         shade.scale.set(boxW, depth, 1);
         const u = shade.material.uniforms;
         u.uSize.value.set(boxW, depth);
-        u.uRadius.value = Math.min(
-          depth,
-          interpolateProgress(scrollYProgress.get(), [0.25, 0.35, 0.8, 0.9], [24, 14, 14, 24]),
+        u.uRadius.value = Math.min(depth, radius);
+        u.uRail.value = rail;
+      }
+
+      // Floor spill behind the chips (depth-tested, projection-compensated).
+      const floor = floorRef.current;
+      if (floor) {
+        const floorH = Math.max(1, band.bandH * 0.62);
+        const fz = -FLOOR_Z;
+        const ff = (camDist - fz) / camDist;
+        const cx = mgn + boxW / 2;
+        const cy = canvasH - (topY + floorH / 2);
+        floor.position.set(
+          canvasW / 2 + (cx - canvasW / 2) * ff,
+          canvasH / 2 + (cy - canvasH / 2) * ff,
+          fz,
         );
+        floor.scale.set(boxW * ff, floorH * ff, 1);
+        const u = floor.material.uniforms;
+        u.uSize.value.set(boxW, floorH);
+        u.uRadius.value = Math.min(floorH, radius);
+        u.uStart.value = rail + maxScreenR * 0.9;
       }
 
       renderer.render(scene, camera);
@@ -587,13 +624,11 @@ export default function CircleFieldThree({
 
     clearPool(scene);
     setLightsEnabled(lightsRef.current, !useFlat);
-    // Standard materials + IBL only exist on the desktop pool.
-    if (!useFlat && !envRef.current) envRef.current = createStudioEnvironment(renderer);
-    const env = envRef.current;
     mobileFlatRef.current = useFlat;
     poolCountRef.current = indices.length;
 
-    if (!shadowTexRef.current) shadowTexRef.current = createShadowTexture();
+    // Desktop-only resources: shadow quads + (deferred) studio IBL.
+    if (!useFlat && !shadowTexRef.current) shadowTexRef.current = createShadowTexture();
     const shadowTex = shadowTexRef.current;
     const aniso = useFlat ? 1 : Math.min(4, renderer.capabilities.getMaxAnisotropy());
     const gen = ++poolGenRef.current;
@@ -612,14 +647,16 @@ export default function CircleFieldThree({
       const shadows: (Mesh | null)[] = new Array(circles.length).fill(null);
       for (const [i, img] of loaded) {
         if (!img) continue;
-        const face = bakeChipFace(img, useFlat ? 128 : 256, useFlat);
+        const face = bakeChipFace(img, useFlat ? 128 : 160, useFlat);
         face.texture.anisotropy = aniso;
-        const shadow = createShadow(geo, shadowTex);
-        shadow.visible = false;
-        scene.add(shadow);
-        shadows[i] = shadow;
-        const coin =
-          useFlat || !env ? createFlatCoin(geo, face) : createLitCoin(geo, face, env);
+        if (!useFlat && shadowTex) {
+          const shadow = createShadow(geo, shadowTex);
+          shadow.visible = false;
+          scene.add(shadow);
+          shadows[i] = shadow;
+        }
+        const coin = useFlat ? createFlatCoin(geo, face) : createLitCoin(geo, face);
+        if (envRef.current) setCoinEnv(coin, envRef.current);
         coin.group.visible = false;
         scene.add(coin.group);
         coins[i] = coin;
@@ -631,6 +668,18 @@ export default function CircleFieldThree({
       else {
         wake();
         if (!runningRef.current) renderStatic(false);
+      }
+
+      // PMREM bake waits until after first paint, off the critical path.
+      if (!useFlat && !envRef.current) {
+        const bake = () => {
+          if (gen !== poolGenRef.current || rendererRef.current !== renderer) return;
+          if (!envRef.current) envRef.current = createStudioEnvironment(renderer);
+          for (const coin of coinsRef.current) if (coin) setCoinEnv(coin, envRef.current);
+          if (!runningRef.current) renderStatic(reducedRef.current);
+        };
+        if (typeof requestIdleCallback === "function") requestIdleCallback(bake, { timeout: 1200 });
+        else setTimeout(bake, 300);
       }
     });
   }, [circles, clearPool, loadImage, renderStatic, wake]);
@@ -647,7 +696,6 @@ export default function CircleFieldThree({
       canvas,
       alpha: true,
       antialias: !narrow,
-      premultipliedAlpha: false,
       powerPreference: narrow ? "low-power" : "high-performance",
     });
     renderer.setClearColor(0x000000, 0);
@@ -670,6 +718,9 @@ export default function CircleFieldThree({
     const lipShade = createLipShade();
     scene.add(lipShade);
     lipShadeRef.current = lipShade;
+    const floor = createFloorSpill();
+    scene.add(floor);
+    floorRef.current = floor;
 
     mobileFlatRef.current = narrow;
     poolCountRef.current = 0;
@@ -698,6 +749,10 @@ export default function CircleFieldThree({
       lipShade.material.dispose();
       lipShade.geometry.dispose();
       lipShadeRef.current = null;
+      scene.remove(floor);
+      floor.material.dispose();
+      floor.geometry.dispose();
+      floorRef.current = null;
       renderer.dispose();
       rendererRef.current = null;
       sceneRef.current = null;

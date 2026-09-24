@@ -172,7 +172,7 @@ describe("pack handoff cohesion", () => {
     }
     expect(crossAt).toHaveLength(circles.length - BOX_COUNT);
     const spread = Math.max(...crossAt) - Math.min(...crossAt);
-    expect(spread).toBeLessThan(0.16);
+    expect(spread).toBeLessThan(0.1);
     for (const t of crossAt) expect(Math.abs(t - PACK_CROSS_AT)).toBeLessThan(0.08);
   });
 });

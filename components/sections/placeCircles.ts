@@ -52,10 +52,11 @@ const PATH_ARRIVED = 1 - 1e-4;
  */
 export const PACK_CROSS_AT = MOUTH_TRAVEL_CENTER;
 /**
- * Every chip is this far across horizontally when it meets the lip. Shared, so
- * left-to-right order (and spacing) is preserved through the crossing.
+ * Every chip is this far across horizontally when it meets the lip: it has
+ * nearly reached its slot column, so the evenly spaced slots keep neighbours
+ * apart through the crossing and the drop into the mouth reads straight down.
  */
-const PACK_X_AT_LIP = 0.55;
+const PACK_X_AT_LIP = 0.85;
 
 function hermite(u: number, y0: number, y1: number, m0: number, m1: number) {
   const u2 = u * u;
