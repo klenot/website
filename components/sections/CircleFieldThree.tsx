@@ -243,11 +243,10 @@ export default function CircleFieldThree({
       svg: svgRef.current,
       pathSection: pathSectionRef.current,
       pathConfig: isDesktopRef.current ? PATH_HORIZONTAL : PATH_VERTICAL,
-      marginPx: marginPx.get(),
       isDesktop: isDesktopRef.current,
     });
     updateMetrics();
-  }, [boxRef, marginPx, pathSectionRef, svgRef, updateMetrics]);
+  }, [boxRef, pathSectionRef, svgRef, updateMetrics]);
 
   const applyPoses = useCallback(
     (time: number, rest: boolean) => {
@@ -339,19 +338,21 @@ export default function CircleFieldThree({
         const screenR = (CIRCLE_LOGOS[i].size * scale * sizeMul) / 2;
 
         // Depth-scaled scroll differential (near leads the dock, far lags).
-        const lead = hero ? (nearF - 0.5) * 18 * gauss(t, 0.5, 0.2) : 0;
+        const onPath = pose.onPath === true;
+        const lead = hero && !onPath ? (nearF - 0.5) * 18 * gauss(t, 0.5, 0.2) : 0;
         const dCross = pose.y + lead - boxTopLocalY; // + = below the lip
         // 0 in the hero, 1 once fully inside the card — continuous across the lip.
         const inside = hero ? sstep(-screenR * 0.9, screenR * 1.6, dCross) : 1;
 
         // Mouth: the chip squashes and leans back as it tucks under the rail,
         // then a soft squash-and-settle as it lands on the card plane.
-        const landU = hero ? Math.min(1, Math.max(0, (t - 0.74) / 0.26)) : 0;
+        const landU = hero && !onPath ? Math.min(1, Math.max(0, (t - 0.74) / 0.26)) : 0;
         const landBump = Math.sin(Math.PI * landU) ** 2;
-        const mouth = hero ? gauss(dCross, screenR * 0.15, screenR * 0.8) * (1 - landU) : 0;
+        const mouth =
+          hero && !onPath ? gauss(dCross, screenR * 0.15, screenR * 0.8) * (1 - landU) : 0;
         const squash = 0.05 * landBump + 0.17 * mouth;
         // Micro-spring: sink a hair past the slot, rebound, rest exactly on it.
-        const spring = hero ? Math.sin(2 * Math.PI * landU) * (1 - landU) : 0;
+        const spring = hero && !onPath ? Math.sin(2 * Math.PI * landU) * (1 - landU) : 0;
         const settleY = screenR * 0.1 * spring;
 
         // Plane settle: hero chips hover in front, then ease down onto the card plane.
@@ -362,7 +363,7 @@ export default function CircleFieldThree({
 
         // --- screen anchor (overlay-local px -> world, y-up) + idle parallax ---
         const idleT = frameTime * (0.55 + nearF * 0.9); // far drifts slower
-        const parAmp = (0.45 + nearF) * 5.2 * idle * (1 - inside);
+        const parAmp = onPath ? 0 : (0.45 + nearF) * 5.2 * idle * (1 - inside);
         const worldScreenX =
           pose.x + Math.sin(idleT * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
         const worldScreenY =
@@ -779,14 +780,17 @@ export default function CircleFieldThree({
     return () => window.removeEventListener("resize", onResize);
   }, [remeasure, renderStatic, resize, syncActive, syncCoinPool, wake, isDesktop, pathConfig, reduced]);
 
+  // Layout is static while scrolling (the box stretch is a transform), so the
+  // cache is only refreshed when something really resizes — never per frame.
   useEffect(() => {
     const svg = svgRef.current;
-    if (!svg) return;
+    const overlay = overlayRef.current;
     const ro = new ResizeObserver(() => {
       remeasure();
       if (!runningRef.current) renderStatic(reducedRef.current);
     });
-    ro.observe(svg);
+    if (svg) ro.observe(svg);
+    if (overlay) ro.observe(overlay);
     return () => ro.disconnect();
   }, [remeasure, renderStatic, svgRef, isDesktop]);
 
@@ -799,8 +803,6 @@ export default function CircleFieldThree({
         ease: "easeOut",
       });
     }
-    // Refresh landing band during the mouth window so lip straddles stay pixel-locked.
-    if (value > 0.05 && value < 0.95) remeasure();
     if (reducedRef.current) {
       if (visibleRef.current) renderStatic(true);
     } else if (visibleRef.current) {

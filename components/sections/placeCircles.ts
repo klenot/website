@@ -40,6 +40,8 @@ export type CirclePose = {
   hidden: boolean;
   /** Per-chip travel after the pack warp (0 = hero, 1 = landed). */
   t: number;
+  /** Locked to a path endpoint (renderer must not add any offset). */
+  onPath?: boolean;
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -140,7 +142,8 @@ export function placeCircles({
 
   const p = rest ? 0 : clamp01(travel);
   const pt = rest ? 0 : clamp01(pathTravel);
-  const ptEased = smoothstep(pt);
+  // Clamped + monotone: path chips can never pass the endpoint.
+  const ptEased = Math.min(1, smoothstep(pt));
   const vmin = Math.min(viewportW, viewportH) / 100;
   const { bandLeft, bandW, bandTop, bandH } = boxBandFromMargin(cache, marginPx);
   const { heroW, heroH, heroSectionTop, heroSectionH } = cache;
@@ -148,12 +151,12 @@ export function placeCircles({
   const pathStart =
     pt > 0
       ? (pathEndpoints?.start ??
-        pathEndpointLocal(cache, marginPx, scrollY, scrollX, viewportH, "start"))
+        pathEndpointLocal(cache, scrollY, scrollX, viewportH, "start"))
       : null;
   const pathEnd =
     pt > 0
       ? (pathEndpoints?.end ??
-        pathEndpointLocal(cache, marginPx, scrollY, scrollX, viewportH, "end"))
+        pathEndpointLocal(cache, scrollY, scrollX, viewportH, "end"))
       : null;
 
   for (let i = 0; i < circles.length; i++) {
@@ -219,11 +222,15 @@ export function placeCircles({
       }
     }
 
-    const driftDampen = isPathCircle ? 0 : 1;
+    // Path chips fade their idle drift out over the path travel (no one-frame
+    // jump when they leave the box) and hold exactly on the endpoint at arrival.
+    const driftDampen = isPathCircle ? (pt >= PATH_ARRIVED ? 0 : 1 - ptEased) : 1;
     const fallDrift = p > 0 && p < 1 ? Math.max(0, 1 - p * 2.5) : 1;
     const ds = driftDampen * fallDrift * driftScale;
     let dx = rest ? 0 : c.dax * vmin * Math.sin(time * c.fx + c.phase) * ds;
     let dy = rest ? 0 : c.day * vmin * Math.cos(time * c.fy + c.phase) * ds;
+    const driftX = dx;
+    const driftY = dy;
 
     // Padded clear zone around the hero headline: push hero coins out of an
     // elliptical hole around "Hi, my name is Marek" so they never sit on type.
@@ -252,7 +259,9 @@ export function placeCircles({
       }
     }
 
-    out[i] = { x: baseX + dx, y: baseY + dy, hidden: false, t: coinP };
+    out[i] = isPathCircle
+      ? { x: baseX + driftX, y: baseY + driftY, hidden: false, t: coinP, onPath: true }
+      : { x: baseX + dx, y: baseY + dy, hidden: false, t: coinP };
   }
 
   return out;

@@ -37,6 +37,26 @@ export function spreadMarginPx(progress: number, width: number): number {
   return Math.max(INSET_MIN_PX, Math.min(INSET_MAX_PX, px));
 }
 
+/**
+ * The box's LAYOUT margin: it is laid out once at full spread and never
+ * reflows while scrolling. The visible stretch/shrink is a compositor-only
+ * `scale` (see `spreadScale`), so nothing below it moves per frame.
+ */
+export function spreadLayoutMarginPx(width: number): number {
+  return spreadMarginPx(SPREAD_BREAKPOINTS[2], width);
+}
+
+/**
+ * Uniform scale (top-centre origin) that makes the full-spread box exactly as
+ * wide — and, via its aspect ratio, as tall — as the `spreadMarginPx` inset at
+ * this progress. Same keyframes as the circle travel, so lockstep holds.
+ */
+export function spreadScale(progress: number, width: number): number {
+  const full = width - 2 * spreadLayoutMarginPx(width);
+  if (full <= 0) return 1;
+  return Math.max(0, width - 2 * spreadMarginPx(progress, width)) / full;
+}
+
 /** Narrowest inset (hero / card closed) — same as SPREAD_INSET_FRAC[0]. */
 const SPREAD_INSET_NARROW = SPREAD_INSET_FRAC[0];
 /** Widest inset (card open) — same as SPREAD_INSET_FRAC[2]. */

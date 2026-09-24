@@ -4,7 +4,9 @@ import {
   SPREAD_INSET_FRAC,
   circleTravelFromSpread,
   interpolateProgress,
+  spreadLayoutMarginPx,
   spreadMarginPx,
+  spreadScale,
 } from "@/components/sections/serviceReveal";
 
 describe("interpolateProgress", () => {
@@ -74,5 +76,38 @@ describe("spreadMarginPx", () => {
   it("clamps the inset on very narrow and very wide containers", () => {
     expect(spreadMarginPx(0, 40)).toBe(14); // min clamp
     expect(spreadMarginPx(0, 4000)).toBe(260); // max clamp
+  });
+});
+
+describe("spreadScale (compositor stretch)", () => {
+  it("reproduces the margin-driven box width exactly at every progress", () => {
+    for (const width of [390, 768, 1280, 1920]) {
+      const full = width - 2 * spreadLayoutMarginPx(width);
+      for (let k = 0; k <= 100; k++) {
+        const p = k / 100;
+        const visual = spreadScale(p, width) * full;
+        expect(visual).toBeCloseTo(width - 2 * spreadMarginPx(p, width), 6);
+      }
+    }
+  });
+
+  it("is 1 at full spread and < 1 while narrow", () => {
+    expect(spreadScale(0.5, 1280)).toBeCloseTo(1);
+    expect(spreadScale(0, 1280)).toBeLessThan(1);
+    expect(spreadScale(1, 1280)).toBeLessThan(1);
+  });
+
+  it("moves in lockstep with circle travel (same keyframes)", () => {
+    let prevS = 0;
+    let prevT = -1;
+    for (let k = 0; k <= 100; k++) {
+      const p = 0.25 + (0.1 * k) / 100;
+      const s = spreadScale(p, 1280);
+      const t = circleTravelFromSpread(p);
+      expect(s).toBeGreaterThanOrEqual(prevS - 1e-9);
+      expect(t).toBeGreaterThanOrEqual(prevT - 1e-9);
+      prevS = s;
+      prevT = t;
+    }
   });
 });

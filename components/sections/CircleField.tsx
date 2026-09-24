@@ -117,10 +117,9 @@ export default function CircleField({
       svg: svgRef.current,
       pathSection: pathSectionRef.current,
       pathConfig: isDesktopRef.current ? PATH_HORIZONTAL : PATH_VERTICAL,
-      marginPx: marginPx.get(),
       isDesktop: isDesktopRef.current,
     });
-  }, [boxRef, marginPx, pathSectionRef, svgRef]);
+  }, [boxRef, pathSectionRef, svgRef]);
 
   const applyPoses = useCallback(
     (time: number, rest: boolean) => {

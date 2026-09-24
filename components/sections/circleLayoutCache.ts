@@ -4,6 +4,8 @@ export type PathLayoutCache = {
   valid: boolean;
   sectionDocTop: number;
   sectionHeight: number;
+  /** Height of the pinned (sticky) wrapper — may differ from innerHeight on phones. */
+  stickyH: number;
   svgDocLeft: number;
   svgDocTop: number;
   svgW: number;
@@ -28,8 +30,6 @@ export type LayoutCache = {
   heroSectionH: number;
   /** width / height of the services box */
   aspect: number;
-  /** marginX at the moment of measure — used to correct doc tops when box height changes */
-  marginAtMeasure: number;
   path: PathLayoutCache;
 };
 
@@ -44,11 +44,11 @@ export const EMPTY_LAYOUT_CACHE: LayoutCache = {
   heroSectionTop: 0,
   heroSectionH: 0,
   aspect: 16 / 9,
-  marginAtMeasure: 8,
   path: {
     valid: false,
     sectionDocTop: 0,
     sectionHeight: 0,
+    stickyH: 0,
     svgDocLeft: 0,
     svgDocTop: 0,
     svgW: 0,
@@ -82,14 +82,6 @@ export function boxBandFromMargin(
   };
 }
 
-/** Doc-Y shift of everything below the services box when margin (hence box height) changes. */
-export function boxHeightDelta(cache: LayoutCache, marginPx: number) {
-  return (
-    boxHeight(cache.overlayWidth, marginPx, cache.aspect) -
-    boxHeight(cache.overlayWidth, cache.marginAtMeasure, cache.aspect)
-  );
-}
-
 function svgPointInViewport(
   svgLeft: number,
   svgTop: number,
@@ -113,13 +105,14 @@ function svgPointInViewport(
 
 /**
  * Path endpoint in overlay-local coordinates.
- * Uses scrollY + cached doc positions — no layout reads.
+ * Uses scrollY + cached doc positions — no layout reads. Exact because the
+ * services box never reflows (its stretch is a transform), so nothing below it
+ * moves after measure.
  * Models sticky top-0: before pin (flows), while pinned (fixed in viewport),
  * and after release (glued to section bottom — not the in-flow top).
  */
 export function pathEndpointLocal(
   cache: LayoutCache,
-  marginPx: number,
   scrollY: number,
   scrollX: number,
   viewportH: number,
@@ -128,16 +121,18 @@ export function pathEndpointLocal(
   const p = cache.path;
   if (!cache.valid || !p.valid || p.svgW <= 0 || p.svgH <= 0) return null;
 
-  const delta = boxHeightDelta(cache, marginPx);
-  const sectionDocTop = p.sectionDocTop + delta;
-  const svgDocTop = p.svgDocTop + delta;
+  const sectionDocTop = p.sectionDocTop;
+  const svgDocTop = p.svgDocTop;
   const svgDocLeft = p.svgDocLeft;
 
   // sticky top-0 inside a tall section: pin while the section spans the viewport,
   // then release glued to the section bottom — not the in-flow top.
   const stickyOffsetY = svgDocTop - sectionDocTop;
   const sectionTopVp = sectionDocTop - scrollY;
-  const pinDistance = Math.max(0, p.sectionHeight - viewportH);
+  // Sticky pins for (section height − pinned element height). On phones the
+  // `h-screen` wrapper is 100vh, not innerHeight — using the latter left the
+  // chips drifting past the path end by the URL-bar height after release.
+  const pinDistance = Math.max(0, p.sectionHeight - (p.stickyH > 0 ? p.stickyH : viewportH));
   const stickShift =
     sectionTopVp >= 0
       ? 0
@@ -203,7 +198,6 @@ export function measureLayoutCache({
   svg,
   pathSection,
   pathConfig,
-  marginPx,
   isDesktop,
 }: {
   overlay: HTMLElement;
@@ -212,7 +206,6 @@ export function measureLayoutCache({
   svg: SVGSVGElement | null;
   pathSection: HTMLElement | null;
   pathConfig: PathConfig;
-  marginPx: number;
   isDesktop: boolean;
 }): LayoutCache {
   const scrollY = window.scrollY;
@@ -233,6 +226,7 @@ export function measureLayoutCache({
     valid: false,
     sectionDocTop: 0,
     sectionHeight: 0,
+    stickyH: 0,
     svgDocLeft: 0,
     svgDocTop: 0,
     svgW: 0,
@@ -252,6 +246,7 @@ export function measureLayoutCache({
       path.valid = true;
       path.sectionDocTop = secRect.top + scrollY;
       path.sectionHeight = secRect.height;
+      path.stickyH = svg.parentElement?.getBoundingClientRect().height ?? 0;
       path.svgDocLeft = sRect.left + scrollX;
       path.svgDocTop = sRect.top + scrollY;
       path.svgW = sRect.width;
@@ -270,7 +265,6 @@ export function measureLayoutCache({
     heroSectionTop,
     heroSectionH,
     aspect,
-    marginAtMeasure: marginPx,
     path,
   };
 }
