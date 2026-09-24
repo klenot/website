@@ -93,10 +93,9 @@ export function makeCircles(): CircleModel[] {
     }
     slots.push(best);
   }
-  for (let i = slots.length - 1; i > 0; i--) {
-    const j = Math.floor(slotRand() * (i + 1));
-    [slots[i], slots[j]] = [slots[j], slots[i]];
-  }
+  // Seeded box chips take the deepest slots, so incoming hero chips land above
+  // them and never pass over one on the way in.
+  slots.sort((a, b) => b.y - a.y);
 
   const circles: CircleModel[] = [];
 
