@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   boxBandFromMargin,
-  boxHeightDelta,
   EMPTY_LAYOUT_CACHE,
   pathEndpointLocal,
   type LayoutCache,
 } from "./circleLayoutCache";
-import { isScrubbing, placeCircles, type CircleModel } from "./placeCircles";
+import {
+  isScrubbing,
+  PACK_CROSS_AT,
+  packWarp,
+  placeCircles,
+  type CircleModel,
+} from "./placeCircles";
+import { BOX_COUNT, makeCircles } from "./circleFieldModel";
 
 function baseCache(overrides: Partial<LayoutCache> = {}): LayoutCache {
   return {
@@ -21,11 +27,11 @@ function baseCache(overrides: Partial<LayoutCache> = {}): LayoutCache {
     heroSectionTop: 0,
     heroSectionH: 400,
     aspect: 16 / 9,
-    marginAtMeasure: 8,
     path: {
       valid: true,
       sectionDocTop: 2000,
       sectionHeight: 2000,
+      stickyH: 800,
       svgDocLeft: 100,
       svgDocTop: 2100,
       svgW: 800,
@@ -51,28 +57,18 @@ describe("boxBandFromMargin", () => {
   });
 });
 
-describe("boxHeightDelta", () => {
-  it("is zero at the measured margin", () => {
-    expect(boxHeightDelta(baseCache(), 8)).toBeCloseTo(0);
-  });
-
-  it("grows when margin shrinks (full-bleed)", () => {
-    expect(boxHeightDelta(baseCache(), 0)).toBeGreaterThan(0);
-  });
-});
-
 describe("pathEndpointLocal", () => {
   it("returns null when path cache is invalid", () => {
     const cache = baseCache({
       path: { ...baseCache().path, valid: false },
     });
-    expect(pathEndpointLocal(cache, 8, 0, 0, 800, "start")).toBeNull();
+    expect(pathEndpointLocal(cache, 0, 0, 800, "start")).toBeNull();
   });
 
   it("tracks sticky pin in overlay-local space as scroll advances", () => {
     const cache = baseCache();
-    const atPin = pathEndpointLocal(cache, 8, 2000, 0, 800, "start");
-    const deeper = pathEndpointLocal(cache, 8, 2200, 0, 800, "start");
+    const atPin = pathEndpointLocal(cache, 2000, 0, 800, "start");
+    const deeper = pathEndpointLocal(cache, 2200, 0, 800, "start");
     expect(atPin).not.toBeNull();
     expect(deeper).not.toBeNull();
     // Overlay scrolls up; local Y of a pinned SVG point must increase.
@@ -84,9 +80,9 @@ describe("pathEndpointLocal", () => {
     const cache = baseCache();
     // pinDistance = sectionHeight - viewportH = 1200
     // last pinned scrollY = sectionDocTop + pinDistance = 3200
-    const lastPinned = pathEndpointLocal(cache, 8, 3200, 0, 800, "start");
-    const justAfter = pathEndpointLocal(cache, 8, 3201, 0, 800, "start");
-    const afterRelease = pathEndpointLocal(cache, 8, 3400, 0, 800, "start");
+    const lastPinned = pathEndpointLocal(cache, 3200, 0, 800, "start");
+    const justAfter = pathEndpointLocal(cache, 3201, 0, 800, "start");
+    const afterRelease = pathEndpointLocal(cache, 3400, 0, 800, "start");
     expect(lastPinned).not.toBeNull();
     expect(justAfter).not.toBeNull();
     expect(afterRelease).not.toBeNull();
@@ -98,12 +94,136 @@ describe("pathEndpointLocal", () => {
   });
 });
 
+describe("pathEndpointLocal sticky height", () => {
+  it("pins for sectionHeight - stickyH (not innerHeight) so release is continuous", () => {
+    // Phone: 100vh wrapper (844) taller than innerHeight (760).
+    const cache = baseCache({ path: { ...baseCache().path, stickyH: 844 } });
+    const releaseAt = 2000 + (2000 - 844);
+    const before = pathEndpointLocal(cache, releaseAt, 0, 760, "end");
+    const after = pathEndpointLocal(cache, releaseAt + 120, 0, 760, "end");
+    expect(before).not.toBeNull();
+    expect(after!.y).toBeCloseTo(before!.y, 6);
+  });
+});
+
+describe("path chip clamp", () => {
+  it("approaches the endpoint monotonically and never passes it", () => {
+    const pathCircle: CircleModel = {
+      origin: "box",
+      fromX: 0.5,
+      fromY: 0.5,
+      toX: 0.5,
+      toY: 0.5,
+      dax: 1,
+      day: 1,
+      fx: 0.001,
+      fy: 0.001,
+      phase: 0,
+      pathDest: "end",
+    };
+    const target = { x: 900, y: 1400 };
+    let prevY = -Infinity;
+    for (let k = 0; k <= 60; k++) {
+      const pathTravel = k / 50; // runs past 1 on purpose
+      const [pose] = placeCircles({
+        circles: [pathCircle],
+        cache: baseCache(),
+        travel: 1,
+        pathTravel,
+        marginPx: 8,
+        scrollY: 0,
+        scrollX: 0,
+        viewportW: 1000,
+        viewportH: 800,
+        time: 0,
+        rest: false,
+        isDesktop: true,
+        maxVisible: 1,
+        mobileHeroSlots: [],
+        boxCount: 9,
+        pathEndpoints: { start: null, end: target },
+      });
+      expect(pose.y).toBeGreaterThanOrEqual(prevY - 1e-9);
+      expect(pose.y).toBeLessThanOrEqual(target.y + 1e-9);
+      prevY = pose.y;
+      if (pathTravel >= 1) {
+        expect(pose.x).toBeCloseTo(target.x);
+        expect(pose.y).toBeCloseTo(target.y);
+        expect(pose.onPath).toBe(true);
+      }
+    }
+  });
+});
+
 describe("isScrubbing", () => {
   it("detects mid travel and mid path", () => {
     expect(isScrubbing(0, 0)).toBe(false);
     expect(isScrubbing(1, 0)).toBe(false);
     expect(isScrubbing(0.5, 0)).toBe(true);
     expect(isScrubbing(1, 0.5)).toBe(true);
+  });
+});
+
+describe("packWarp", () => {
+  it("pins the endpoints and moves the lip crossing to the shared travel", () => {
+    for (const lipAt of [0.15, 0.4, 0.6, 0.85]) {
+      expect(packWarp(0, lipAt, 0.5)).toBe(0);
+      expect(packWarp(1, lipAt, 0.5)).toBe(1);
+      expect(packWarp(0.5, lipAt, 0.5)).toBeCloseTo(lipAt);
+    }
+  });
+
+  it("is monotone (never reverses mid-scrub)", () => {
+    for (const lipAt of [0.1, 0.3, 0.7, 0.92]) {
+      let prev = 0;
+      for (let k = 1; k <= 400; k++) {
+        const v = packWarp(k / 400, lipAt, 0.52);
+        expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
+        prev = v;
+      }
+    }
+  });
+});
+
+describe("pack handoff cohesion", () => {
+  it("every hero chip crosses the lip inside one narrow travel window", () => {
+    const circles = makeCircles();
+    const cache = baseCache({ heroH: 800, bandTop: 800, overlayWidth: 1280, heroW: 1280 });
+    const crossAt: number[] = [];
+    for (let i = BOX_COUNT; i < circles.length; i++) {
+      let prevBelow = false;
+      for (let k = 0; k <= 1000; k++) {
+        const travel = k / 1000;
+        const [pose] = placeCircles({
+          circles: [circles[i]],
+          cache,
+          travel,
+          pathTravel: 0,
+          marginPx: 45,
+          scrollY: 0,
+          scrollX: 0,
+          viewportW: 1280,
+          viewportH: 800,
+          time: 0,
+          rest: false,
+          isDesktop: true,
+          maxVisible: 1,
+          mobileHeroSlots: [],
+          boxCount: BOX_COUNT,
+          driftScale: 0,
+        });
+        const below = pose.y >= cache.bandTop;
+        if (below && !prevBelow) {
+          crossAt.push(travel);
+          break;
+        }
+        prevBelow = below;
+      }
+    }
+    expect(crossAt).toHaveLength(circles.length - BOX_COUNT);
+    const spread = Math.max(...crossAt) - Math.min(...crossAt);
+    expect(spread).toBeLessThan(0.1);
+    for (const t of crossAt) expect(Math.abs(t - PACK_CROSS_AT)).toBeLessThan(0.08);
   });
 });
 

@@ -9,7 +9,7 @@ const TEXTS = [
   "I know some neat ops tricks I can share.",
   "Sometimes, I write code.",
   "Or, nowdays instruct agents.",
-  "I’ll do my best to make your company better.",
+  "I'll do my best to make your company better.",
   "I also like chess.",
   "If you wanna play.",
 ];
@@ -17,15 +17,44 @@ const TEXTS = [
 const TYPING_SPEED = 55;
 const ERASING_SPEED = 30;
 const HOLD_DURATION = 2500;
+/** Hide headline once the services mouth enters view — kills mid-scroll typewriter chrome. */
+const HEADLINE_HIDE_SCROLL_PX = 48;
+const CAPTURE_IDLE_KEY = "hero-capture-idle";
+
+function readCaptureIdle() {
+  if (typeof sessionStorage === "undefined") return false;
+  return sessionStorage.getItem(CAPTURE_IDLE_KEY) === "1";
+}
 
 export default function Hero() {
+  const [captureIdle] = useState(readCaptureIdle);
   const [index, setIndex] = useState(0);
-  const [text, setText] = useState("");
-  const [phase, setPhase] = useState<"typing" | "holding" | "erasing">(
-    "typing",
+  const [text, setText] = useState(() => (readCaptureIdle() ? TEXTS[0] : ""));
+  const [phase, setPhase] = useState<"typing" | "holding" | "erasing">(() =>
+    readCaptureIdle() ? "holding" : "typing",
   );
+  const [headlineVisible, setHeadlineVisible] = useState(true);
+  const [typingPaused, setTypingPaused] = useState(false);
 
   useEffect(() => {
+    const onScroll = () => {
+      const hide = window.scrollY > HEADLINE_HIDE_SCROLL_PX;
+      setHeadlineVisible(!hide);
+      setTypingPaused(hide);
+      if (hide) {
+        setText(TEXTS[0]);
+        setIndex(0);
+        setPhase("holding");
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (captureIdle) return;
+    if (typingPaused) return;
+
     const current = TEXTS[index];
 
     if (phase === "typing") {
@@ -56,12 +85,12 @@ export default function Hero() {
       setText(current.slice(0, text.length - 1));
     }, ERASING_SPEED);
     return () => clearTimeout(timer);
-  }, [text, phase, index]);
+  }, [text, phase, index, typingPaused, captureIdle]);
 
   return (
     <section
       id="hero"
-      className="relative flex h-[65vh] overflow-hidden rounded-t-3xl"
+      className="relative flex min-h-[100svh] overflow-hidden rounded-t-3xl"
     >
       <div
         aria-hidden
@@ -83,13 +112,19 @@ export default function Hero() {
           WebkitMaskImage: "linear-gradient(to bottom, black 50%, transparent 100%)",
         }}
       />
-      <div className="relative flex w-full items-center justify-center px-6">
-        <h2 className="mx-auto max-w-[16rem] text-balance text-center font-mono text-lg leading-snug text-white sm:max-w-xs sm:text-xl md:max-w-md md:text-xl">
+      <div className="relative flex w-full flex-1 items-center justify-center px-6">
+        <h2
+          className={`mx-auto max-w-[16rem] text-balance text-center font-mono text-lg leading-snug text-white transition-opacity duration-300 sm:max-w-xs sm:text-xl md:max-w-md md:text-xl ${
+            headlineVisible ? "opacity-100" : "pointer-events-none opacity-0"
+          }`}
+        >
           {text}
-          <span
-            className="ml-0.5 inline-block h-[1em] w-[3px] animate-pulse rounded-full align-middle"
-            style={{ backgroundColor: "#FF8008" }}
-          />
+          {headlineVisible ? (
+            <span
+              className="ml-0.5 inline-block h-[1em] w-[3px] animate-pulse rounded-full align-middle"
+              style={{ backgroundColor: "#FF8008" }}
+            />
+          ) : null}
         </h2>
       </div>
     </section>
