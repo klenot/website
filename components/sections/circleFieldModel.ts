@@ -35,8 +35,8 @@ export const HERO_COUNT = 6;
 
 // Landed coins live in a TIGHT upper band of the box, so the empty strip above
 // the bottom-pinned copy reads as intentional negative space (not a sparse void).
-const BOX_BAND_TOP = 0.17;
-const BOX_BAND_BOTTOM = 0.42;
+const BOX_BAND_TOP = 0.16;
+const BOX_BAND_BOTTOM = 0.48;
 
 export function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -48,43 +48,16 @@ export function mulberry32(seed: number) {
   };
 }
 
-export function buildMobileHeroSlots(count: number): { x: number; y: number }[] {
-  const rand = mulberry32(9080701);
-  const pick = (a: number, b: number) => a + rand() * (b - a);
-
-  const aboveCount = Math.ceil(count / 2);
-  const minDist = 0.16;
-  const slots: { x: number; y: number }[] = [];
-
-  for (let i = 0; i < count; i++) {
-    const isAbove = i < aboveCount;
-    const yMin = isAbove ? 0.06 : 0.66;
-    const yMax = isAbove ? 0.28 : 0.94;
-    const xMin = isAbove ? 0.16 : 0.18;
-    const xMax = isAbove ? 0.84 : 0.82;
-
-    let placed = false;
-    for (let attempt = 0; attempt < 48; attempt++) {
-      const x = pick(xMin, xMax);
-      const y = pick(yMin, yMax);
-      const crowded = slots.some((s) => {
-        const dx = s.x - x;
-        const dy = s.y - y;
-        return dx * dx + dy * dy < minDist * minDist;
-      });
-      if (!crowded) {
-        slots.push({ x, y });
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) slots.push({ x: pick(xMin, xMax), y: pick(yMin, yMax) });
-  }
-
-  return slots;
-}
-
-export const MOBILE_HERO_SLOTS = buildMobileHeroSlots(HERO_COUNT);
+// Hand-placed (by hero index) so the visible mobile hero chips frame the
+// headline — two above, two below — instead of clumping in one corner.
+export const MOBILE_HERO_SLOTS: readonly { x: number; y: number }[] = [
+  { x: 0.25, y: 0.17 }, // cursor
+  { x: 0.74, y: 0.26 }, // nextjs
+  { x: 0.76, y: 0.72 }, // claude
+  { x: 0.5, y: 0.9 },
+  { x: 0.27, y: 0.8 }, // gemini
+  { x: 0.5, y: 0.1 },
+];
 
 export function makeCircles(): CircleModel[] {
   const rand = mulberry32(20260902);
@@ -92,38 +65,36 @@ export function makeCircles(): CircleModel[] {
 
   const TOTAL = BOX_COUNT + HERO_COUNT;
 
-  // Landing slots inside the box's upper band, spaced out (Poisson-ish) but
-  // packed tighter for a denser cluster.
+  // Landing slots inside the box's upper band: best-candidate spacing measured
+  // in on-screen proportions (the 16:9 band is ~0.56 as tall as it is wide),
+  // so settled chips sit in a loose, non-overlapping cluster.
+  const slotRand = mulberry32(7310452);
+  const slotPick = (a: number, b: number) => a + slotRand() * (b - a);
+  const Y_ASPECT = 0.56;
   const slots: { x: number; y: number }[] = [];
-  const minDist = 0.13;
   for (let i = 0; i < TOTAL; i++) {
-    let best = { x: 0.5, y: 0.4 };
+    let best = { x: 0.5, y: 0.3 };
     let bestD = -1;
-    for (let attempt = 0; attempt < 40; attempt++) {
+    for (let attempt = 0; attempt < 90; attempt++) {
       const cand = {
-        x: pick(0.12, 0.88),
-        y: pick(BOX_BAND_TOP, BOX_BAND_BOTTOM),
+        x: slotPick(0.1, 0.9),
+        y: slotPick(BOX_BAND_TOP, BOX_BAND_BOTTOM),
       };
       let d = Infinity;
       for (const s of slots) {
         const dx = s.x - cand.x;
-        const dy = s.y - cand.y;
+        const dy = (s.y - cand.y) * Y_ASPECT;
         d = Math.min(d, dx * dx + dy * dy);
-      }
-      if (slots.length === 0) {
-        best = cand;
-        break;
       }
       if (d > bestD) {
         bestD = d;
         best = cand;
-        if (d > minDist * minDist) break;
       }
     }
     slots.push(best);
   }
   for (let i = slots.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
+    const j = Math.floor(slotRand() * (i + 1));
     [slots[i], slots[j]] = [slots[j], slots[i]];
   }
 
@@ -161,8 +132,11 @@ export function makeCircles(): CircleModel[] {
   const heroCellW = 0.74 / heroCols;
   const heroRows = Math.ceil(HERO_COUNT / heroCols);
   const heroCellH = 0.66 / heroRows;
+  // Hero chips take the remaining slots in left-to-right order, so flight
+  // paths never cross and the pack pours in as one clean sheet.
+  const heroSlots = slots.slice(BOX_COUNT).sort((a, b) => a.x - b.x);
+  const heroStart = circles.length;
   for (let i = 0; i < HERO_COUNT; i++) {
-    const s = slots[BOX_COUNT + i];
     const col = i % heroCols;
     const row = Math.floor(i / heroCols);
     const fromX = 0.13 + (col + 0.5) * heroCellW + pick(-heroCellW * 0.28, heroCellW * 0.28);
@@ -171,28 +145,53 @@ export function makeCircles(): CircleModel[] {
       origin: "hero",
       fromX,
       fromY,
-      toX: s.x,
-      toY: s.y,
+      toX: 0,
+      toY: 0,
       ...decor(BOX_COUNT + i),
     });
   }
+  circles
+    .slice(heroStart)
+    .sort((a, b) => a.fromX - b.fromX)
+    .forEach((c, rank) => {
+      c.toX = heroSlots[rank].x;
+      c.toY = heroSlots[rank].y;
+    });
 
   circles[PATH_CIRCLE_CURSOR].pathDest = "start";
   circles[PATH_CIRCLE_NEXTJS].pathDest = "end";
 
-  // Mouth pack: three hero chips cross the card lip together (design critic still).
-  const mouthPack = [
-    { index: BOX_COUNT + 2, slot: -1 }, // claude
-    { index: BOX_COUNT + 3, slot: 0 }, // react
-    { index: BOX_COUNT + 4, slot: 1 }, // gemini
-  ];
-  for (const { index, slot } of mouthPack) {
-    circles[index].mouthPack = true;
-    circles[index].mouthSlot = slot;
+  for (let i = 0; i < circles.length; i++) {
+    const m = MOBILE_BOX_SLOTS[i];
+    circles[i].mToX = m.x;
+    circles[i].mToY = m.y;
   }
 
   return circles;
 }
+
+/**
+ * Mobile pool (~6 flat chips): 2 pre-seeded box chips + 4 hero chips, so the
+ * phone hero isn't a near-empty field and the pack still has a cast.
+ */
+export const MOBILE_POOL: readonly number[] = [0, 1, 4, 5, 6, 8];
+export const MOBILE_VISIBLE_MASK: readonly boolean[] = CIRCLE_LOGOS.map((_, i) =>
+  MOBILE_POOL.includes(i),
+);
+
+// Tidy staggered two-column pack for the tall 9:16 box (band fractions).
+const MOBILE_BOX_SLOTS: readonly { x: number; y: number }[] = [
+  { x: 0.27, y: 0.12 }, // openai
+  { x: 0.73, y: 0.1 }, // supabase
+  { x: 0.3, y: 0.52 },
+  { x: 0.7, y: 0.52 },
+  { x: 0.5, y: 0.215 }, // cursor
+  { x: 0.25, y: 0.325 }, // nextjs
+  { x: 0.74, y: 0.315 }, // claude
+  { x: 0.5, y: 0.6 },
+  { x: 0.5, y: 0.425 }, // gemini
+  { x: 0.5, y: 0.66 },
+];
 
 export function logoScaleForWidth(w: number) {
   if (w < 480) return 0.82;

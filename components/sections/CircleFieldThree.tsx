@@ -7,9 +7,10 @@ import {
   PerspectiveCamera,
   Scene,
   SRGBColorSpace,
-  TextureLoader,
   WebGLRenderer,
   type Mesh,
+  type PlaneGeometry,
+  type ShaderMaterial,
   type Texture,
 } from "three";
 import {
@@ -23,6 +24,7 @@ import {
 import type { MotionValue } from "motion/react";
 import {
   circleTravelFromSpread,
+  interpolateProgress,
   SPREAD_OFFSET,
   spreadMarginPx,
 } from "./serviceReveal";
@@ -38,23 +40,28 @@ import {
   BOX_COUNT,
   CIRCLE_LOGOS,
   MOBILE_HERO_SLOTS,
+  MOBILE_POOL,
+  MOBILE_VISIBLE_MASK,
   logoScaleForWidth,
   makeCircles,
   placeCircles,
 } from "./circleFieldModel";
 import {
+  bakeChipFace,
   createCoinGeometry,
-  createCoinMaterials,
   createFlatCoin,
   createLights,
+  createLipShade,
   createLitCoin,
-  createMouthOccluder,
   createShadow,
   createShadowTexture,
+  createStudioEnvironment,
+  disposeCoin,
+  disposeCoinGeometry,
+  setCoinShade,
   setLightsEnabled,
   type Coin,
   type CoinGeometry,
-  type CoinMaterials,
 } from "./coinFactory";
 
 const FOV = 30;
@@ -69,6 +76,14 @@ const IDLE_HOLD_MS = 220;
 const IDLE_DECAY_MS = 900;
 /** Mobile scrub cap (~30 FPS) — Marek device scroll perf. */
 const MOBILE_FRAME_MS = 33;
+
+// First reveal: every hero chip scales in together once all faces are baked;
+// the per-chip offset is a hair so it reads as one breath, not a queue.
+const APPEAR_MS = 620;
+const APPEAR_STEP_MS = 18;
+// Interior light inside the black card relative to the hero (1).
+const INSIDE_SHADE_LIT = 0.8;
+const INSIDE_SHADE_FLAT = 0.86;
 
 const smoother = (t: number) => {
   const c = t < 0 ? 0 : t > 1 ? 1 : t;
@@ -115,13 +130,15 @@ export default function CircleFieldThree({
   const sceneRef = useRef<Scene | null>(null);
   const cameraRef = useRef<PerspectiveCamera | null>(null);
   const camDistRef = useRef(1000);
-  const coinsRef = useRef<Coin[]>([]);
-  const shadowsRef = useRef<Mesh[]>([]);
-  const appearRef = useRef<number[]>([]);
-  const occluderRef = useRef<Mesh | null>(null);
+  const coinsRef = useRef<(Coin | null)[]>([]);
+  const shadowsRef = useRef<(Mesh | null)[]>([]);
+  const appearStartRef = useRef(0);
+  const lipShadeRef = useRef<Mesh<PlaneGeometry, ShaderMaterial> | null>(null);
   const geoRef = useRef<CoinGeometry | null>(null);
-  const matsRef = useRef<CoinMaterials | null>(null);
+  const envRef = useRef<Texture | null>(null);
   const lightsRef = useRef<Light[]>([]);
+  const imagesRef = useRef(new Map<string, Promise<HTMLImageElement>>());
+  const poolGenRef = useRef(0);
 
   const metricsRef = useRef<Metrics>({
     overlayDocTop: 0,
@@ -136,7 +153,6 @@ export default function CircleFieldThree({
   const layoutRef = useRef<LayoutCache>(EMPTY_LAYOUT_CACHE);
   const isDesktopRef = useRef(false);
   const mobileRef = useRef(false);
-  const maxVisibleRef = useRef(CIRCLE_LOGOS.length);
 
   const runningRef = useRef(false);
   const rafRef = useRef(0);
@@ -228,7 +244,6 @@ export default function CircleFieldThree({
       const cache = layoutRef.current;
       const coins = coinsRef.current;
       const shadows = shadowsRef.current;
-      const appear = appearRef.current;
       const camDist = camDistRef.current;
 
       if (!cache.valid) {
@@ -267,26 +282,21 @@ export default function CircleFieldThree({
         time: frameTime,
         rest: false,
         isDesktop: isDesktopRef.current,
-        maxVisible: maxVisibleRef.current,
+        maxVisible: circles.length,
+        visibleMask: mobile ? MOBILE_VISIBLE_MASK : undefined,
         mobileHeroSlots: MOBILE_HERO_SLOTS,
         boxCount: BOX_COUNT,
         driftScale: idle,
       });
 
       const scale = logoScaleForWidth(viewportRef.current.w);
-      const dockEase = smoother(tv);
-
-      // Mouth geometry (overlay-local): where the box top sits + how deep the
-      // rim occludes. The occluder is TALL (covers the box interior below the
-      // lip) so a straddling chip — which is the only thing dipped behind it —
-      // shows a clean cap above the lip, never a mid-slice or bottom sliver.
       const band = boxBandFromMargin(cache, mgn);
       const boxTopLocalY = band.bandTop;
-      const maxScreenR = (MAX_LOGO_SIZE * scale * 1.17) / 2;
-      const occH = Math.max(maxScreenR * 2.6, band.bandH * 0.5);
+      const insideShade = mobileFlatRef.current ? INSIDE_SHADE_FLAT : INSIDE_SHADE_LIT;
 
       for (let i = 0; i < coins.length; i++) {
         const coin = coins[i];
+        if (!coin) continue;
         const shadow = shadows[i];
         const pose = poses[i];
         const c = circles[i];
@@ -297,65 +307,49 @@ export default function CircleFieldThree({
           continue;
         }
 
-        const tier = c.depthTier ?? 0.5;
-        const nearF = 1 - tier;
+        const hero = c.origin === "hero";
+        const t = pose.t;
+        const dock = smoother(t);
+        const nearF = 1 - (c.depthTier ?? 0.5);
 
-        // Appear (scale-in) reveal — box coins start visible (cast continuity).
-        const appearRate = c.origin === "box" ? 1 : 0.06 + (i - BOX_COUNT) * 0.012;
-        const ap = rest ? 1 : Math.min(1, appear[i] + appearRate);
-        appear[i] = ap;
-        const apEase = ap * ap * (3 - 2 * ap);
+        let ap = 1;
+        if (hero && !rest) {
+          const start = appearStartRef.current + (i - BOX_COUNT) * APPEAR_STEP_MS;
+          ap = Math.min(1, Math.max(0, (time - start) / APPEAR_MS));
+        }
+        const apEase = 1 - (1 - ap) * (1 - ap) * (1 - ap);
 
         // Near/far SIZE (drives visible parallax; landing stays pixel-exact).
         const sizeMul = 1 + (nearF - 0.5) * 0.44;
-        const settle = c.origin === "box" ? 1 : 1 + (1 - dockEase) * 0.05;
-        const screenR = (CIRCLE_LOGOS[i].size * scale * sizeMul * settle) / 2;
+        const screenR = (CIRCLE_LOGOS[i].size * scale * sizeMul) / 2;
 
-        const inMouth =
-          c.origin === "hero" &&
-          c.mouthPack &&
-          tv > 0.05 &&
-          tv < 0.95;
+        // Depth-scaled scroll differential (near leads the dock, far lags).
+        const lead = hero ? (nearF - 0.5) * 18 * gauss(t, 0.5, 0.2) : 0;
+        const dCross = pose.y + lead - boxTopLocalY; // + = below the lip
+        // 0 in the hero, 1 once fully inside the card — continuous across the lip.
+        const inside = hero ? sstep(-screenR * 0.9, screenR * 1.6, dCross) : 1;
 
-        // --- depth-scaled scroll differential (near leads the dock, far lags) ---
-        const lead =
-          c.origin === "box" || inMouth
-            ? 0
-            : (nearF - 0.5) * 34 * gauss(tv, 0.5, 0.2);
+        // Contact: a light touch as the chip passes the lip, then a soft
+        // squash-and-settle as it lands on the card plane.
+        const landU = hero ? Math.min(1, Math.max(0, (t - 0.74) / 0.26)) : 0;
+        const landBump = Math.sin(Math.PI * landU) ** 2;
+        const lipBump = hero ? gauss(dCross, 0, screenR * 0.55) * (1 - landU) : 0;
+        const squash = 0.05 * landBump + 0.025 * lipBump;
 
-        // --- MOUTH: a chip straddling the box top dips behind the rim occluder ---
-        const lipOverlayY =
-          inMouth && c.mouthPack
-            ? boxTopLocalY + (c.mouthSlot ?? 0) * band.bandH * 0.032
-            : pose.y;
-        const anchorY = lipOverlayY + lead;
-        const dCross = anchorY - boxTopLocalY; // + = below the box top
-        const lipBand = inMouth ? 1.35 : 1.2;
-        const straddle =
-          c.origin === "hero"
-            ? sstep(-screenR * lipBand, -screenR * 0.04, dCross) *
-              (1 - sstep(screenR * 0.04, screenR * lipBand, dCross))
-            : 0;
-        const stretch = straddle * straddle * (3 - 2 * straddle);
-
-        // Depth: sort offset kept >= 0 so nothing but a straddling chip is ever
-        // behind the occluder; near tier sits in front for correct overlaps.
-        const zSort = nearF * Z_SORT;
-        const zHero = HERO_LIFT + nearF * 36;
-        // Plane settle: orbit in z while hero-floating, ease down to card plane.
-        const zOrbit = c.origin === "hero" ? (1 - dockEase) * (zHero - zSort) : 0;
-        let zc = zSort + zOrbit;
+        // Plane settle: hero chips hover in front, then ease down onto the card plane.
+        const zPlane = nearF * Z_SORT;
+        const zLift = hero ? (1 - dock) * (HERO_LIFT + nearF * 36) : 0;
+        let zc = zPlane + zLift - 8 * landBump;
         zc += Math.sin(frameTime * 0.0004 * (0.55 + nearF) + c.phase) * 7 * nearF * idle;
-        zc -= 130 * stretch; // dip behind the rim
 
         // --- screen anchor (overlay-local px -> world, y-up) + idle parallax ---
         const idleT = frameTime * (0.55 + nearF * 0.9); // far drifts slower
-        const parAmp = inMouth ? 0 : (0.45 + nearF) * 5.2 * idle;
+        const parAmp = (0.45 + nearF) * 5.2 * idle * (1 - inside);
         const worldScreenX =
           pose.x + Math.sin(idleT * (c.fx ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp;
         const worldScreenY =
           canvasH -
-          (lipOverlayY +
+          (pose.y +
             offY +
             lead +
             Math.cos(idleT * (c.fy ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp * 0.7);
@@ -368,53 +362,62 @@ export default function CircleFieldThree({
 
         coin.group.visible = apEase > 0.01;
         coin.group.position.set(worldX, worldY, zc);
-        // Stretch through the lip: vertical squash, slight width bulge, z foreshorten.
-        const stretchGain = inMouth ? 1.2 : 1;
         coin.group.scale.set(
-          Math.max(0.0001, worldR * (1 + 0.22 * stretch * stretchGain)),
-          Math.max(0.0001, worldR * (1 - 0.52 * stretch * stretchGain)),
-          Math.max(0.0001, worldR * (1 - 0.2 * stretch * stretchGain)),
+          Math.max(0.0001, worldR * (1 + squash * 0.6)),
+          Math.max(0.0001, worldR * (1 - squash)),
+          Math.max(0.0001, worldR),
         );
 
-        // --- tilt + depth-scaled idle micro-yaw + lip foreshorten lean ---
-        const tipIn = c.origin === "box" || inMouth ? 0 : gauss(tv, 0.5, 0.24) * 0.26;
+        // Tilt: full rest tilt while floating, mostly levelled once on the plane.
+        const restTilt = hero ? 1 - 0.55 * dock : 0.45;
+        const tipIn = hero ? gauss(t, 0.5, 0.24) * 0.2 : 0;
         coin.group.rotation.x =
-          (c.tiltX ?? 0) +
+          (c.tiltX ?? 0) * restTilt +
           tipIn +
-          stretch * 0.55 * stretchGain +
           Math.sin(idleT * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * idle;
         coin.group.rotation.y =
-          (c.tiltY ?? 0) +
+          (c.tiltY ?? 0) * restTilt +
           Math.sin(idleT * 0.00052 + (c.spinPhase ?? 0) * 1.3) * 0.09 * (0.4 + nearF) * idle;
 
-        // --- grounded soft contact shadow (desktop only; invisible on black) ---
-        if (mobile || !shadow) {
-          if (shadow) shadow.visible = false;
-        } else {
+        setCoinShade(coin, 1 - (1 - insideShade) * inside);
+
+        // Soft drop shadow: wide and offset while hovering over the hero, tight
+        // contact once on the plane (and naturally invisible on the black card).
+        if (shadow) {
+          const lift = hero ? 1 - dock : 0;
+          const off = screenR * (0.12 + 0.3 * lift);
+          const shScale = screenR * 2 * (1.04 + 0.45 * lift) * f * apEase;
           const shMat = shadow.material as { opacity: number };
-          shadow.visible = true;
-          const landFade = c.origin === "hero" ? dockEase : 1;
-          const shScale = screenR * f * 2 * 1.55;
-          shadow.position.set(worldX, worldY - worldR * 0.52, zc - 5);
-          shadow.scale.set(shScale, shScale * 0.72, 1);
-          shMat.opacity = 0.34 * apEase * landFade;
+          shadow.visible = apEase > 0.01;
+          shadow.position.set(worldX + off * 0.35 * f, worldY - off * f, zc - 1);
+          shadow.scale.set(shScale, shScale * 0.94, 1);
+          shMat.opacity = (0.5 - 0.12 * lift) * apEase;
         }
       }
 
-      // Rim occluder: plain black bar at the box top edge (invisible on the
-      // black card — no lit line), sitting just behind z=0 so only straddling
-      // chips tuck under it.
-      const occ = occluderRef.current;
-      if (occ) {
+      // Inner-only box shade drawn over the chips (soft half-clip at the lip).
+      const shade = lipShadeRef.current;
+      if (shade) {
         const boxW = Math.max(1, canvasW - 2 * mgn);
-        const topWorldY = canvasH - (band.bandTop + offY);
-        occ.position.set(canvasW / 2, topWorldY - occH / 2, -2);
-        occ.scale.set(boxW, occH, 1);
+        const boxH = Math.max(1, band.bandH);
+        const topY = band.bandTop + offY;
+        shade.position.set(mgn + boxW / 2, canvasH - (topY + boxH / 2), 0);
+        shade.scale.set(boxW, boxH, 1);
+        const u = shade.material.uniforms;
+        u.uSize.value.set(boxW, boxH);
+        u.uRadius.value = interpolateProgress(
+          scrollYProgress.get(),
+          [0.25, 0.35, 0.8, 0.9],
+          [24, 14, 14, 24],
+        );
+        const maxScreenR = (MAX_LOGO_SIZE * scale * 1.22) / 2;
+        u.uDepth.value = maxScreenR * 1.6;
+        u.uSide.value = Math.min(64, boxW * 0.08);
       }
 
       renderer.render(scene, camera);
     },
-    [circles, marginPx, pathTravel, travel],
+    [circles, marginPx, pathTravel, scrollYProgress, travel],
   );
 
   const resize = useCallback(() => {
@@ -428,7 +431,6 @@ export default function CircleFieldThree({
     viewportRef.current = { w: window.innerWidth, h: window.innerHeight };
     const narrow = window.innerWidth < 768;
     mobileRef.current = narrow;
-    maxVisibleRef.current = narrow ? 6 : CIRCLE_LOGOS.length;
 
     // Lower DPR caps to cut fill-rate (Marek: painfully slow scrolling).
     const dpr = Math.min(window.devicePixelRatio || 1, narrow ? 1.0 : 1.25);
@@ -528,88 +530,99 @@ export default function CircleFieldThree({
     else stopLoop();
   }, [renderStatic, stopLoop, wake]);
 
-  const disposeCoin = useCallback((coin: Coin, scene: Scene) => {
-    scene.remove(coin.group);
-    coin.logoMat.dispose();
-    (coin.logoMat.map as Texture | null)?.dispose();
-    if (coin.mode === "flat") {
-      (coin.blank.material as { dispose: () => void }).dispose();
+  const loadImage = useCallback((file: string) => {
+    const cache = imagesRef.current;
+    let pending = cache.get(file);
+    if (!pending) {
+      pending = new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.decoding = "async";
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = `/logos/${file}`;
+      });
+      cache.set(file, pending);
     }
+    return pending;
+  }, []);
+
+  const clearPool = useCallback((scene: Scene) => {
+    for (const coin of coinsRef.current) {
+      if (!coin) continue;
+      scene.remove(coin.group);
+      disposeCoin(coin);
+    }
+    for (const shadow of shadowsRef.current) {
+      if (!shadow) continue;
+      scene.remove(shadow);
+      (shadow.material as { dispose: () => void }).dispose();
+    }
+    coinsRef.current = [];
+    shadowsRef.current = [];
   }, []);
 
   const syncCoinPool = useCallback(() => {
     const scene = sceneRef.current;
     const geo = geoRef.current;
-    const mats = matsRef.current;
     const renderer = rendererRef.current;
-    if (!scene || !geo || !mats || !renderer) return;
+    if (!scene || !geo || !renderer) return;
 
     const narrow = window.innerWidth < 768;
-    const count = narrow ? 6 : CIRCLE_LOGOS.length;
+    const indices = narrow ? MOBILE_POOL : CIRCLE_LOGOS.map((_, i) => i);
     const useFlat = narrow;
     mobileRef.current = narrow;
-    maxVisibleRef.current = count;
 
-    if (poolCountRef.current === count && mobileFlatRef.current === useFlat) return;
+    if (poolCountRef.current === indices.length && mobileFlatRef.current === useFlat) return;
 
-    // Tear down the previous pool.
-    for (const coin of coinsRef.current) disposeCoin(coin, scene);
-    for (const shadow of shadowsRef.current) {
-      scene.remove(shadow);
-      (shadow.material as { dispose: () => void }).dispose();
-    }
-    if (shadowTexRef.current) {
-      shadowTexRef.current.dispose();
-      shadowTexRef.current = null;
-    }
-    coinsRef.current = [];
-    shadowsRef.current = [];
-
+    clearPool(scene);
     setLightsEnabled(lightsRef.current, !useFlat);
+    // Standard materials + IBL only exist on the desktop pool.
+    if (!useFlat && !envRef.current) envRef.current = createStudioEnvironment(renderer);
+    const env = envRef.current;
     mobileFlatRef.current = useFlat;
-    poolCountRef.current = count;
+    poolCountRef.current = indices.length;
 
-    const loader = new TextureLoader();
-    const maxAniso = renderer.capabilities.getMaxAnisotropy();
-    let shadowTex: Texture | null = null;
-    if (!useFlat) {
-      shadowTex = createShadowTexture();
-      shadowTexRef.current = shadowTex;
-    }
+    if (!shadowTexRef.current) shadowTexRef.current = createShadowTexture();
+    const shadowTex = shadowTexRef.current;
+    const aniso = useFlat ? 1 : Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    const gen = ++poolGenRef.current;
 
-    const coins: Coin[] = [];
-    const shadows: Mesh[] = [];
-    const appear: number[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const logo = CIRCLE_LOGOS[i];
-      const texture: Texture = loader.load(`/logos/${logo.file}`, () => {
-        renderStatic(reducedRef.current);
-      });
-      texture.colorSpace = SRGBColorSpace;
-      texture.anisotropy = narrow ? 1 : maxAniso;
-
-      if (!useFlat && shadowTex) {
+    // Build the whole cast at once so the first reveal is simultaneous.
+    void Promise.all(
+      indices.map((i) =>
+        loadImage(CIRCLE_LOGOS[i].file).then(
+          (img) => [i, img] as const,
+          () => [i, null] as const,
+        ),
+      ),
+    ).then((loaded) => {
+      if (gen !== poolGenRef.current || sceneRef.current !== scene) return;
+      const coins: (Coin | null)[] = new Array(circles.length).fill(null);
+      const shadows: (Mesh | null)[] = new Array(circles.length).fill(null);
+      for (const [i, img] of loaded) {
+        if (!img) continue;
+        const face = bakeChipFace(img, useFlat ? 128 : 256, useFlat);
+        face.texture.anisotropy = aniso;
         const shadow = createShadow(geo, shadowTex);
+        shadow.visible = false;
         scene.add(shadow);
-        shadows.push(shadow);
+        shadows[i] = shadow;
+        const coin =
+          useFlat || !env ? createFlatCoin(geo, face) : createLitCoin(geo, face, env);
+        coin.group.visible = false;
+        scene.add(coin.group);
+        coins[i] = coin;
       }
-
-      const rimIndex = Math.round((circles[i]?.depthTier ?? 0.5) * 2);
-      const coin = useFlat
-        ? createFlatCoin(geo, texture, rimIndex)
-        : createLitCoin(geo, mats, texture, rimIndex);
-      scene.add(coin.group);
-      coins.push(coin);
-
-      // Cast continuity: box coins visible from idle; hero coins stage in.
-      appear.push(circles[i]?.origin === "box" ? 1 : 0);
-    }
-
-    coinsRef.current = coins;
-    shadowsRef.current = shadows;
-    appearRef.current = appear;
-  }, [circles, disposeCoin, renderStatic]);
+      coinsRef.current = coins;
+      shadowsRef.current = shadows;
+      appearStartRef.current = performance.now();
+      if (reducedRef.current) renderStatic(true);
+      else {
+        wake();
+        if (!runningRef.current) renderStatic(false);
+      }
+    });
+  }, [circles, clearPool, loadImage, renderStatic, wake]);
 
   // Scene setup / teardown.
   useEffect(() => {
@@ -618,7 +631,6 @@ export default function CircleFieldThree({
 
     const narrow = window.innerWidth < 768;
     mobileRef.current = narrow;
-    maxVisibleRef.current = narrow ? 6 : CIRCLE_LOGOS.length;
 
     const renderer = new WebGLRenderer({
       canvas,
@@ -643,12 +655,10 @@ export default function CircleFieldThree({
 
     const geo = createCoinGeometry();
     geoRef.current = geo;
-    const mats = createCoinMaterials();
-    matsRef.current = mats;
 
-    const occluder = createMouthOccluder();
-    scene.add(occluder);
-    occluderRef.current = occluder;
+    const lipShade = createLipShade();
+    scene.add(lipShade);
+    lipShadeRef.current = lipShade;
 
     mobileFlatRef.current = narrow;
     poolCountRef.current = 0;
@@ -662,34 +672,25 @@ export default function CircleFieldThree({
       stopLoop();
       if (staticRafRef.current) cancelAnimationFrame(staticRafRef.current);
       staticRafRef.current = 0;
-      for (const coin of coinsRef.current) disposeCoin(coin, scene);
-      for (const shadow of shadowsRef.current) {
-        scene.remove(shadow);
-        (shadow.material as { dispose: () => void }).dispose();
-      }
+      clearPool(scene);
       shadowTexRef.current?.dispose();
       shadowTexRef.current = null;
+      envRef.current?.dispose();
+      envRef.current = null;
       for (const light of lights) {
         scene.remove(light);
         light.dispose();
       }
       lightsRef.current = [];
-      for (const rim of mats.rimMats) rim.dispose();
-      mats.capMat.dispose();
-      geo.blank.dispose();
-      geo.decal.dispose();
-      geo.shadow.dispose();
-      geo.flatRim.dispose();
-      geo.flatFace.dispose();
-      scene.remove(occluder);
-      (occluder.material as { dispose: () => void }).dispose();
-      occluder.geometry.dispose();
+      disposeCoinGeometry(geo);
+      scene.remove(lipShade);
+      lipShade.material.dispose();
+      lipShade.geometry.dispose();
+      lipShadeRef.current = null;
       renderer.dispose();
       rendererRef.current = null;
       sceneRef.current = null;
       cameraRef.current = null;
-      coinsRef.current = [];
-      shadowsRef.current = [];
       poolCountRef.current = 0;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

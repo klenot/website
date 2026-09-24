@@ -25,21 +25,59 @@ export type CircleModel = {
   tiltY?: number;
   /** Idle micro-yaw phase — 3D renderer only. */
   spinPhase?: number;
-  /** When true, travel is synced so this chip crosses the box lip at MOUTH_TRAVEL_CENTER. */
-  mouthPack?: boolean;
-  /** Small vertical stagger (-1..1) so 2–3 mouth chips half-clip simultaneously. */
-  mouthSlot?: number;
+  /** Curated landing slot for the narrow (9:16) box; falls back to toX/toY. */
+  mToX?: number;
+  mToY?: number;
 };
 
 export type CirclePose = {
   x: number;
   y: number;
   hidden: boolean;
+  /** Per-chip travel after the pack warp (0 = hero, 1 = landed). */
+  t: number;
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 const PATH_ARRIVED = 1 - 1e-4;
+
+/**
+ * Hero chips cross the lip inside this travel window (centre-out offset), so
+ * the pack reads as one gesture instead of chips marching in one by one.
+ */
+export const PACK_CROSS_AT = MOUTH_TRAVEL_CENTER;
+export const PACK_CROSS_SPREAD = 0.08;
+
+function hermite(u: number, y0: number, y1: number, m0: number, m1: number) {
+  const u2 = u * u;
+  const u3 = u2 * u;
+  return (
+    (2 * u3 - 3 * u2 + 1) * y0 +
+    (u3 - 2 * u2 + u) * m0 +
+    (-2 * u3 + 3 * u2) * y1 +
+    (u3 - u2) * m1
+  );
+}
+
+/**
+ * Monotone C1 remap of travel so a chip whose straight path reaches the lip at
+ * `lipAt` does so at the shared `crossAt` instead, then eases into its slot.
+ */
+export function packWarp(p: number, lipAt: number, crossAt: number): number {
+  if (p <= 0) return 0;
+  if (p >= 1) return 1;
+  if (!(lipAt > 0.02 && lipAt < 0.98) || !(crossAt > 0.05 && crossAt < 0.95)) return p;
+  const P = crossAt;
+  const L = lipAt;
+  const dA = L / P;
+  const dB = (1 - L) / (1 - P);
+  // Carry real speed through the lip (no pile-up above it) while staying
+  // inside the monotone bound on both segments.
+  const m = Math.min((3.2 * dA * dB) / (dA + dB), 2.8 * dA, 2.8 * dB);
+  if (p < P) return hermite(p / P, 0, L, dA * P, m * P);
+  return hermite((p - P) / (1 - P), L, 1, m * (1 - P), 0.35 * dB * (1 - P));
+}
 
 export function placeCircles({
   circles,
@@ -57,6 +95,7 @@ export function placeCircles({
   maxVisible,
   mobileHeroSlots,
   boxCount,
+  visibleMask,
   pathEndpoints,
   driftScale = 1,
 }: {
@@ -77,6 +116,8 @@ export function placeCircles({
   boxCount: number;
   /** 0 = drift fully faded (idle-stopped), 1 = full drift. Renderer-driven. */
   driftScale?: number;
+  /** Optional per-index visibility (mobile pool subset); ANDed with maxVisible. */
+  visibleMask?: readonly boolean[];
   pathEndpoints?: {
     start: { x: number; y: number } | null;
     end: { x: number; y: number } | null;
@@ -84,7 +125,7 @@ export function placeCircles({
 }): CirclePose[] {
   const out: CirclePose[] = new Array(circles.length);
   if (!cache.valid) {
-    for (let i = 0; i < circles.length; i++) out[i] = { x: 0, y: 0, hidden: true };
+    for (let i = 0; i < circles.length; i++) out[i] = { x: 0, y: 0, hidden: true, t: 0 };
     return out;
   }
 
@@ -107,58 +148,48 @@ export function placeCircles({
       : null;
 
   for (let i = 0; i < circles.length; i++) {
-    if (i >= maxVisible) {
-      out[i] = { x: 0, y: 0, hidden: true };
+    if (i >= maxVisible || (visibleMask && !visibleMask[i])) {
+      out[i] = { x: 0, y: 0, hidden: true, t: 0 };
       continue;
     }
 
     const c = circles[i];
+    const slotX = !isDesktop && c.mToX !== undefined ? c.mToX : c.toX;
+    const slotY = !isDesktop && c.mToY !== undefined ? c.mToY : c.toY;
     let fromPxX: number;
     let fromPxY: number;
-    let toPxX: number;
-    let toPxY: number;
+    const toPxX = bandLeft + slotX * bandW;
+    const toPxY = bandTop + slotY * bandH;
 
     if (c.origin === "box") {
-      fromPxX = bandLeft + c.fromX * bandW;
-      fromPxY = bandTop + c.fromY * bandH;
-      toPxX = fromPxX;
-      toPxY = fromPxY;
+      fromPxX = toPxX;
+      fromPxY = toPxY;
     } else if (!isDesktop) {
       const heroIndex = i - boxCount;
       const slot = mobileHeroSlots[heroIndex % mobileHeroSlots.length];
       fromPxX = slot.x * heroW;
       fromPxY = heroSectionTop + slot.y * heroSectionH;
-      toPxX = bandLeft + c.toX * bandW;
-      toPxY = bandTop + c.toY * bandH;
     } else {
       fromPxX = c.fromX * heroW;
       fromPxY = c.fromY * heroH;
-      toPxX = bandLeft + c.toX * bandW;
-      toPxY = bandTop + c.toY * bandH;
     }
 
-    let coinP = p;
-    const mouthBlend =
-      c.origin === "hero" && c.mouthPack
-        ? Math.exp(-0.5 * Math.pow((p - MOUTH_TRAVEL_CENTER) / 0.075, 2))
-        : 0;
-
-    if (c.origin === "hero" && c.mouthPack && mouthBlend > 0.02) {
+    let coinP = c.origin === "box" ? 1 : p;
+    if (c.origin === "hero") {
       const deltaY = toPxY - fromPxY;
-      if (Math.abs(deltaY) > 4) {
-        const lipTravel = clamp01((bandTop - fromPxY) / deltaY);
-        coinP = clamp01(p + (lipTravel - p) * Math.min(1, mouthBlend * 1.05));
+      if (deltaY > 4) {
+        const lipAt = (bandTop - fromPxY) / deltaY;
+        // Centre-out, near tier a touch ahead of far — one wave, not a queue.
+        const crossAt =
+          PACK_CROSS_AT +
+          Math.abs(slotX - 0.5) * PACK_CROSS_SPREAD +
+          ((c.depthTier ?? 0.5) - 0.5) * PACK_CROSS_SPREAD * 0.7;
+        coinP = packWarp(p, lipAt, crossAt);
       }
     }
 
     let baseX = lerp(fromPxX, toPxX, coinP);
     let baseY = lerp(fromPxY, toPxY, coinP);
-
-    // Snap mouth-pack chips to the lip together (2–3 simultaneous half-clips).
-    if (c.origin === "hero" && c.mouthPack && mouthBlend > 0.02) {
-      const lipY = bandTop + (c.mouthSlot ?? 0) * Math.max(24, bandH * 0.032);
-      baseY = lerp(baseY, lipY, Math.min(1, mouthBlend * 1.12));
-    }
 
     let isPathCircle = false;
 
@@ -188,8 +219,8 @@ export function placeCircles({
     // Padded clear zone around the hero headline: push hero coins out of an
     // elliptical hole around "Hi, my name is Marek" so they never sit on type.
     // Applies while the coin is still substantially in the hero (p small), and
-    // eases out as it docks so it doesn't fight the scrub. Skip mouth-pack chips.
-    if (c.origin === "hero" && p < 0.5 && !c.mouthPack) {
+    // eases out as it docks so it doesn't fight the scrub.
+    if (c.origin === "hero" && p < 0.5) {
       const zoneGain = 1 - smoothstep(p / 0.5);
       const textCx = heroW * 0.5;
       const textCy = isDesktop
@@ -212,7 +243,7 @@ export function placeCircles({
       }
     }
 
-    out[i] = { x: baseX + dx, y: baseY + dy, hidden: false };
+    out[i] = { x: baseX + dx, y: baseY + dy, hidden: false, t: coinP };
   }
 
   return out;

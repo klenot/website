@@ -6,7 +6,14 @@ import {
   pathEndpointLocal,
   type LayoutCache,
 } from "./circleLayoutCache";
-import { isScrubbing, placeCircles, type CircleModel } from "./placeCircles";
+import {
+  isScrubbing,
+  PACK_CROSS_AT,
+  packWarp,
+  placeCircles,
+  type CircleModel,
+} from "./placeCircles";
+import { BOX_COUNT, makeCircles } from "./circleFieldModel";
 
 function baseCache(overrides: Partial<LayoutCache> = {}): LayoutCache {
   return {
@@ -104,6 +111,69 @@ describe("isScrubbing", () => {
     expect(isScrubbing(1, 0)).toBe(false);
     expect(isScrubbing(0.5, 0)).toBe(true);
     expect(isScrubbing(1, 0.5)).toBe(true);
+  });
+});
+
+describe("packWarp", () => {
+  it("pins the endpoints and moves the lip crossing to the shared travel", () => {
+    for (const lipAt of [0.15, 0.4, 0.6, 0.85]) {
+      expect(packWarp(0, lipAt, 0.5)).toBe(0);
+      expect(packWarp(1, lipAt, 0.5)).toBe(1);
+      expect(packWarp(0.5, lipAt, 0.5)).toBeCloseTo(lipAt);
+    }
+  });
+
+  it("is monotone (never reverses mid-scrub)", () => {
+    for (const lipAt of [0.1, 0.3, 0.7, 0.92]) {
+      let prev = 0;
+      for (let k = 1; k <= 400; k++) {
+        const v = packWarp(k / 400, lipAt, 0.52);
+        expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
+        prev = v;
+      }
+    }
+  });
+});
+
+describe("pack handoff cohesion", () => {
+  it("every hero chip crosses the lip inside one narrow travel window", () => {
+    const circles = makeCircles();
+    const cache = baseCache({ heroH: 800, bandTop: 800, overlayWidth: 1280, heroW: 1280 });
+    const crossAt: number[] = [];
+    for (let i = BOX_COUNT; i < circles.length; i++) {
+      let prevBelow = false;
+      for (let k = 0; k <= 1000; k++) {
+        const travel = k / 1000;
+        const [pose] = placeCircles({
+          circles: [circles[i]],
+          cache,
+          travel,
+          pathTravel: 0,
+          marginPx: 45,
+          scrollY: 0,
+          scrollX: 0,
+          viewportW: 1280,
+          viewportH: 800,
+          time: 0,
+          rest: false,
+          isDesktop: true,
+          maxVisible: 1,
+          mobileHeroSlots: [],
+          boxCount: BOX_COUNT,
+          driftScale: 0,
+        });
+        const below = pose.y >= cache.bandTop;
+        if (below && !prevBelow) {
+          crossAt.push(travel);
+          break;
+        }
+        prevBelow = below;
+      }
+    }
+    expect(crossAt).toHaveLength(circles.length - BOX_COUNT);
+    const spread = Math.max(...crossAt) - Math.min(...crossAt);
+    expect(spread).toBeLessThan(0.1);
+    for (const t of crossAt) expect(Math.abs(t - PACK_CROSS_AT)).toBeLessThan(0.08);
   });
 });
 
