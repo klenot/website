@@ -22,9 +22,9 @@ import {
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 /** Half thickness of the unit-radius chip — thin token, not a chunky coin. */
-const HALF_T = 0.05;
+const HALF_T = 0.065;
 /** Radial width of the rounded edge that catches the light. */
-const BEVEL = 0.07;
+const BEVEL = 0.1;
 const FACE_R = 1 - BEVEL;
 // Emissive carries most of the brand colour; lights only add soft form.
 const FACE_EMISSIVE = 0.66;
@@ -131,7 +131,7 @@ export function bakeChipFace(img: HTMLImageElement, size: number, bakeLight: boo
     ctx.fillStyle = key;
     ctx.fillRect(0, 0, size, size);
 
-    const w = R * 0.085;
+    const w = R * 0.1;
     const bevel = ctx.createLinearGradient(size * 0.15, size * 0.1, size * 0.85, size * 0.9);
     bevel.addColorStop(0, "rgba(255,255,255,0.62)");
     bevel.addColorStop(0.45, "rgba(255,255,255,0.08)");
@@ -173,10 +173,10 @@ export function createLitCoin(geo: CoinGeometry, face: ChipFace, envMap: Texture
     color: face.edge.clone(),
     emissive: face.edge.clone(),
     emissiveIntensity: EDGE_EMISSIVE,
-    roughness: 0.3,
+    roughness: 0.24,
     metalness: 0,
     envMap,
-    envMapIntensity: 0.45,
+    envMapIntensity: 0.8,
   });
   const faceMat = new MeshStandardMaterial({
     map: face.texture,
@@ -211,7 +211,7 @@ export function createFlatCoin(geo: CoinGeometry, face: ChipFace): Coin {
   const edgeMat = new MeshBasicMaterial({ color: edgeColor.clone(), toneMapped: false });
   const faceMat = new MeshBasicMaterial({ map: face.texture, toneMapped: false });
   const edge = new Mesh(geo.flatEdge, edgeMat);
-  edge.position.set(0.012, -0.06, -0.01);
+  edge.position.set(0.014, -0.075, -0.01);
   const faceMesh = new Mesh(geo.flatFace, faceMat);
 
   const group = new Group();
@@ -268,9 +268,9 @@ export function createShadowTexture(): CanvasTexture {
 
 /**
  * Inner-only box shade, drawn over the chips: deep at the lip, falling off into
- * the box, plus soft side walls. A chip crossing the lip passes under it and
- * emerges continuously — a soft half-clip with no depth pop and no exterior
- * rim line. Rounded top corners match the card.
+ * the box. A chip crossing the lip passes under it and emerges continuously — a
+ * soft half-clip with no depth pop and no exterior rim line. The quad only spans
+ * the shade band (cheap fill); rounded top corners match the card.
  */
 export function createLipShade(): Mesh<PlaneGeometry, ShaderMaterial> {
   const mat = new ShaderMaterial({
@@ -280,9 +280,7 @@ export function createLipShade(): Mesh<PlaneGeometry, ShaderMaterial> {
     uniforms: {
       uSize: { value: new Vector2(1, 1) },
       uRadius: { value: 14 },
-      uDepth: { value: 90 },
-      uSide: { value: 60 },
-      uStrength: { value: 0.96 },
+      uStrength: { value: 0.84 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -294,20 +292,14 @@ export function createLipShade(): Mesh<PlaneGeometry, ShaderMaterial> {
     fragmentShader: /* glsl */ `
       uniform vec2 uSize;
       uniform float uRadius;
-      uniform float uDepth;
-      uniform float uSide;
       uniform float uStrength;
       varying vec2 vUv;
       void main() {
         vec2 p = vec2(vUv.x * uSize.x, (1.0 - vUv.y) * uSize.y);
-        float top = 1.0 - smoothstep(0.0, uDepth, p.y);
-        top *= top;
-        float sx = min(p.x, uSize.x - p.x);
-        float side = 1.0 - smoothstep(0.0, uSide, sx);
-        side *= side * 0.5;
+        float top = pow(1.0 - smoothstep(0.0, uSize.y, p.y), 1.5);
         vec2 c = vec2(clamp(p.x, uRadius, uSize.x - uRadius), max(p.y, uRadius));
         float mask = 1.0 - smoothstep(-0.75, 0.75, length(p - c) - uRadius);
-        gl_FragColor = vec4(0.0, 0.0, 0.0, max(top, side) * uStrength * mask);
+        gl_FragColor = vec4(0.0, 0.0, 0.0, top * uStrength * mask);
       }
     `,
   });
@@ -320,7 +312,7 @@ export function createLights(): Light[] {
   const ambient = new AmbientLight(0xffffff, 0.12);
   const key = new DirectionalLight(0xffffff, 1.25);
   key.position.set(-0.6, 0.9, 1.2);
-  const rim = new DirectionalLight(0xbfd6ff, 1.2);
+  const rim = new DirectionalLight(0xbfd6ff, 1.6);
   rim.position.set(0.9, -0.3, -0.25);
   return [ambient, key, rim];
 }

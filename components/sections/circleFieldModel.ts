@@ -150,12 +150,19 @@ export function makeCircles(): CircleModel[] {
       ...decor(BOX_COUNT + i),
     });
   }
+  // Lip timing: one shared beat, with x-neighbours zipped a hair apart so two
+  // chips never meet the lip at the same spot, centre slightly first and the
+  // near tier a touch ahead of far. Total window ≈ 0.14 travel.
   circles
     .slice(heroStart)
     .sort((a, b) => a.fromX - b.fromX)
     .forEach((c, rank) => {
       c.toX = heroSlots[rank].x;
       c.toY = heroSlots[rank].y;
+      const zip = rank % 2 === 0 ? -0.05 : 0.05;
+      const centreOut = Math.abs(c.toX - 0.5) * 0.04;
+      const nearLead = ((c.depthTier ?? 0.5) - 0.5) * 0.02;
+      c.packOffset = zip + centreOut + nearLead;
     });
 
   circles[PATH_CIRCLE_CURSOR].pathDest = "start";
@@ -185,11 +192,11 @@ const MOBILE_BOX_SLOTS: readonly { x: number; y: number }[] = [
   { x: 0.73, y: 0.1 }, // supabase
   { x: 0.3, y: 0.52 },
   { x: 0.7, y: 0.52 },
-  { x: 0.5, y: 0.215 }, // cursor
-  { x: 0.25, y: 0.325 }, // nextjs
-  { x: 0.74, y: 0.315 }, // claude
+  { x: 0.5, y: 0.245 }, // cursor
+  { x: 0.26, y: 0.375 }, // nextjs
+  { x: 0.74, y: 0.36 }, // claude
   { x: 0.5, y: 0.6 },
-  { x: 0.5, y: 0.425 }, // gemini
+  { x: 0.5, y: 0.5 }, // gemini
   { x: 0.5, y: 0.66 },
 ];
 

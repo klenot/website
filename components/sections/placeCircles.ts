@@ -25,6 +25,8 @@ export type CircleModel = {
   tiltY?: number;
   /** Idle micro-yaw phase — 3D renderer only. */
   spinPhase?: number;
+  /** Lip-crossing offset (travel units) around PACK_CROSS_AT — hero chips only. */
+  packOffset?: number;
   /** Curated landing slot for the narrow (9:16) box; falls back to toX/toY. */
   mToX?: number;
   mToY?: number;
@@ -43,11 +45,15 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const PATH_ARRIVED = 1 - 1e-4;
 
 /**
- * Hero chips cross the lip inside this travel window (centre-out offset), so
- * the pack reads as one gesture instead of chips marching in one by one.
+ * Hero chips cross the lip together around this travel (each nudged by its
+ * small `packOffset`), so the pack reads as one gesture, not a queue.
  */
 export const PACK_CROSS_AT = MOUTH_TRAVEL_CENTER;
-export const PACK_CROSS_SPREAD = 0.08;
+/**
+ * Every chip is this far across horizontally when it meets the lip. Shared, so
+ * left-to-right order (and spacing) is preserved through the crossing.
+ */
+const PACK_X_AT_LIP = 0.55;
 
 function hermite(u: number, y0: number, y1: number, m0: number, m1: number) {
   const u2 = u * u;
@@ -175,20 +181,18 @@ export function placeCircles({
     }
 
     let coinP = c.origin === "box" ? 1 : p;
+    let coinPX = coinP;
     if (c.origin === "hero") {
       const deltaY = toPxY - fromPxY;
       if (deltaY > 4) {
         const lipAt = (bandTop - fromPxY) / deltaY;
-        // Centre-out, near tier a touch ahead of far — one wave, not a queue.
-        const crossAt =
-          PACK_CROSS_AT +
-          Math.abs(slotX - 0.5) * PACK_CROSS_SPREAD +
-          ((c.depthTier ?? 0.5) - 0.5) * PACK_CROSS_SPREAD * 0.7;
+        const crossAt = PACK_CROSS_AT + (c.packOffset ?? 0);
         coinP = packWarp(p, lipAt, crossAt);
+        coinPX = packWarp(p, PACK_X_AT_LIP, crossAt);
       }
     }
 
-    let baseX = lerp(fromPxX, toPxX, coinP);
+    let baseX = lerp(fromPxX, toPxX, coinPX);
     let baseY = lerp(fromPxY, toPxY, coinP);
 
     let isPathCircle = false;

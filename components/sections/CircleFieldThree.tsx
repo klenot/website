@@ -65,9 +65,10 @@ import {
 } from "./coinFactory";
 
 const FOV = 30;
-// Small per-tier z only for correct-sorted overlaps; visible near/far comes from
-// a baked SIZE multiplier (below), so landing stays pixel-exact.
-const Z_SORT = 72;
+// Each chip owns a z slot (by depth tier) wide enough that tilted neighbours
+// never interpenetrate; visible near/far comes from a baked SIZE multiplier
+// (below) and projection is compensated, so landing stays pixel-exact.
+const Z_STEP = 26;
 const HERO_LIFT = 88; // chips float a little in front while up in the hero
 
 // Idle stop: after this long with no scroll/resize/IO wake, drift eases to 0
@@ -170,6 +171,14 @@ export default function CircleFieldThree({
 
   const reduced = useReducedMotion();
   const circles = useMemo(() => makeCircles(), []);
+  const zSlot = useMemo(() => {
+    const order = circles
+      .map((c, i) => ({ i, tier: c.depthTier ?? 0.5 }))
+      .sort((a, b) => b.tier - a.tier);
+    const slots = new Array<number>(circles.length);
+    order.forEach(({ i }, rank) => (slots[i] = rank * Z_STEP));
+    return slots;
+  }, [circles]);
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const pathConfig = isDesktop ? PATH_HORIZONTAL : PATH_VERTICAL;
 
@@ -337,7 +346,7 @@ export default function CircleFieldThree({
         const squash = 0.05 * landBump + 0.025 * lipBump;
 
         // Plane settle: hero chips hover in front, then ease down onto the card plane.
-        const zPlane = nearF * Z_SORT;
+        const zPlane = zSlot[i];
         const zLift = hero ? (1 - dock) * (HERO_LIFT + nearF * 36) : 0;
         let zc = zPlane + zLift - 8 * landBump;
         zc += Math.sin(frameTime * 0.0004 * (0.55 + nearF) + c.phase) * 7 * nearF * idle;
@@ -385,13 +394,13 @@ export default function CircleFieldThree({
         // contact once on the plane (and naturally invisible on the black card).
         if (shadow) {
           const lift = hero ? 1 - dock : 0;
-          const off = screenR * (0.12 + 0.3 * lift);
-          const shScale = screenR * 2 * (1.04 + 0.45 * lift) * f * apEase;
+          const off = screenR * (0.1 + 0.24 * lift);
+          const shScale = screenR * 2 * (1.02 + 0.3 * lift) * f * apEase;
           const shMat = shadow.material as { opacity: number };
           shadow.visible = apEase > 0.01;
           shadow.position.set(worldX + off * 0.35 * f, worldY - off * f, zc - 1);
           shadow.scale.set(shScale, shScale * 0.94, 1);
-          shMat.opacity = (0.5 - 0.12 * lift) * apEase;
+          shMat.opacity = (0.8 - 0.22 * lift) * apEase;
         }
       }
 
@@ -399,25 +408,22 @@ export default function CircleFieldThree({
       const shade = lipShadeRef.current;
       if (shade) {
         const boxW = Math.max(1, canvasW - 2 * mgn);
-        const boxH = Math.max(1, band.bandH);
-        const topY = band.bandTop + offY;
-        shade.position.set(mgn + boxW / 2, canvasH - (topY + boxH / 2), 0);
-        shade.scale.set(boxW, boxH, 1);
-        const u = shade.material.uniforms;
-        u.uSize.value.set(boxW, boxH);
-        u.uRadius.value = interpolateProgress(
-          scrollYProgress.get(),
-          [0.25, 0.35, 0.8, 0.9],
-          [24, 14, 14, 24],
-        );
         const maxScreenR = (MAX_LOGO_SIZE * scale * 1.22) / 2;
-        u.uDepth.value = maxScreenR * 1.6;
-        u.uSide.value = Math.min(64, boxW * 0.08);
+        const depth = Math.max(1, Math.min(band.bandH, maxScreenR * 1.9));
+        const topY = band.bandTop + offY;
+        shade.position.set(mgn + boxW / 2, canvasH - (topY + depth / 2), 0);
+        shade.scale.set(boxW, depth, 1);
+        const u = shade.material.uniforms;
+        u.uSize.value.set(boxW, depth);
+        u.uRadius.value = Math.min(
+          depth,
+          interpolateProgress(scrollYProgress.get(), [0.25, 0.35, 0.8, 0.9], [24, 14, 14, 24]),
+        );
       }
 
       renderer.render(scene, camera);
     },
-    [circles, marginPx, pathTravel, scrollYProgress, travel],
+    [circles, marginPx, pathTravel, scrollYProgress, travel, zSlot],
   );
 
   const resize = useCallback(() => {
