@@ -344,6 +344,9 @@ export default function CircleFieldThree({
         const landBump = Math.sin(Math.PI * landU) ** 2;
         const lipBump = hero ? gauss(dCross, 0, screenR * 0.55) * (1 - landU) : 0;
         const squash = 0.05 * landBump + 0.025 * lipBump;
+        // Micro-spring: sink a hair past the slot, rebound, rest exactly on it.
+        const spring = hero ? Math.sin(2 * Math.PI * landU) * (1 - landU) : 0;
+        const settleY = screenR * 0.1 * spring;
 
         // Plane settle: hero chips hover in front, then ease down onto the card plane.
         const zPlane = zSlot[i];
@@ -361,6 +364,7 @@ export default function CircleFieldThree({
           (pose.y +
             offY +
             lead +
+            settleY +
             Math.cos(idleT * (c.fy ?? 0.0005) + (c.spinPhase ?? 0)) * parAmp * 0.7);
 
         // Keep the projected center locked to the target px at any depth.
@@ -383,6 +387,7 @@ export default function CircleFieldThree({
         coin.group.rotation.x =
           (c.tiltX ?? 0) * restTilt +
           tipIn +
+          0.09 * spring +
           Math.sin(idleT * 0.0006 + (c.spinPhase ?? 0)) * 0.05 * (0.4 + nearF) * idle;
         coin.group.rotation.y =
           (c.tiltY ?? 0) * restTilt +
