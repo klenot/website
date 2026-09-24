@@ -27,6 +27,8 @@ export type CircleModel = {
   spinPhase?: number;
   /** Lip-crossing offset (travel units) around PACK_CROSS_AT — hero chips only. */
   packOffset?: number;
+  /** Narrow-box override of `packOffset`. */
+  mPackOffset?: number;
   /** Curated landing slot for the narrow (9:16) box; falls back to toX/toY. */
   mToX?: number;
   mToY?: number;
@@ -186,7 +188,9 @@ export function placeCircles({
       const deltaY = toPxY - fromPxY;
       if (deltaY > 4) {
         const lipAt = (bandTop - fromPxY) / deltaY;
-        const crossAt = PACK_CROSS_AT + (c.packOffset ?? 0);
+        const offset =
+          !isDesktop && c.mPackOffset !== undefined ? c.mPackOffset : (c.packOffset ?? 0);
+        const crossAt = PACK_CROSS_AT + offset;
         coinP = packWarp(p, lipAt, crossAt);
         coinPX = packWarp(p, PACK_X_AT_LIP, crossAt);
       }

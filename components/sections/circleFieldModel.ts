@@ -172,6 +172,7 @@ export function makeCircles(): CircleModel[] {
     const m = MOBILE_BOX_SLOTS[i];
     circles[i].mToX = m.x;
     circles[i].mToY = m.y;
+    circles[i].mPackOffset = m.po;
   }
 
   return circles;
@@ -186,18 +187,21 @@ export const MOBILE_VISIBLE_MASK: readonly boolean[] = CIRCLE_LOGOS.map((_, i) =
   MOBILE_POOL.includes(i),
 );
 
-// Tidy staggered two-column pack for the tall 9:16 box (band fractions).
-const MOBILE_BOX_SLOTS: readonly { x: number; y: number }[] = [
-  { x: 0.27, y: 0.12 }, // openai
-  { x: 0.73, y: 0.1 }, // supabase
-  { x: 0.3, y: 0.52 },
-  { x: 0.7, y: 0.52 },
-  { x: 0.5, y: 0.245 }, // cursor
-  { x: 0.26, y: 0.375 }, // nextjs
-  { x: 0.74, y: 0.36 }, // claude
-  { x: 0.5, y: 0.6 },
-  { x: 0.5, y: 0.5 }, // gemini
-  { x: 0.5, y: 0.66 },
+// Tidy staggered pack for the tall 9:16 box (band fractions). Seeded box chips
+// sit on the lower row so incoming chips never pass over them; each hero chip
+// lands on the side it starts from, and `po` sequences the lip in three quick
+// beats (deepest first, sides last) — the narrow box can't take four at once.
+const MOBILE_BOX_SLOTS: readonly { x: number; y: number; po?: number }[] = [
+  { x: 0.27, y: 0.52 }, // openai
+  { x: 0.73, y: 0.52 }, // supabase
+  { x: 0.3, y: 0.66 },
+  { x: 0.7, y: 0.66 },
+  { x: 0.27, y: 0.12, po: 0.04 }, // cursor
+  { x: 0.73, y: 0.12, po: 0.04 }, // nextjs
+  { x: 0.5, y: 0.255, po: 0 }, // claude
+  { x: 0.5, y: 0.75 },
+  { x: 0.5, y: 0.39, po: -0.045 }, // gemini
+  { x: 0.5, y: 0.8 },
 ];
 
 export function logoScaleForWidth(w: number) {
